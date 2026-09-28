@@ -2,7 +2,7 @@
 
 This document provides a comprehensive overview of all functions using `unstable_cache` and their associated cache keys, tags, and revalidation points.
 
-> **Production incident:** If cached queries return empty data after a DB outage or Neon cold start, see [UNSTABLE_CACHE_EMPTY_RESULTS.md](./UNSTABLE_CACHE_EMPTY_RESULTS.md).
+> **Production incident:** If cached queries return empty data after a DB outage or Neon cold start, see [UNSTABLE_CACHE_EMPTY_RESULTS.md](./errors/UNSTABLE_CACHE_EMPTY_RESULTS.md).
 
 ---
 

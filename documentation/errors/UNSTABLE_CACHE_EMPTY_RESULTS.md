@@ -248,7 +248,7 @@ When adding a new `unstable_cache` wrapper:
 
 1. **Always** use `withDbRetry()` for Prisma calls
 2. **Never** catch DB errors and return `[]` / `null` inside the cached callback
-3. Use `revalidateTag` on mutations (create/update/delete) — see [CACHE_REVALIDATION_DOCUMENTATION.md](./CACHE_REVALIDATION_DOCUMENTATION.md)
+3. Use `revalidateTag` on mutations (create/update/delete) — see [CACHE_REVALIDATION_DOCUMENTATION.md](../CACHE_REVALIDATION_DOCUMENTATION.md)
 4. Keep `revalidate` as a safety net, not the primary invalidation mechanism
 5. Distinguish “query failed” (throw) from “no rows found” (return `[]` or `null`)
 
@@ -288,7 +288,7 @@ For non-DB cached sources (e.g. external APIs like Facebook Graph), throw on fet
 | `lib/actions/event/getEvent.ts` | Example event cached queries |
 | `lib/actions/post/getPosts.ts` | Example post cached queries |
 | `lib/actions/review/reviewActions.ts` | Example review cached queries |
-| [CACHE_REVALIDATION_DOCUMENTATION.md](./CACHE_REVALIDATION_DOCUMENTATION.md) | Cache keys, tags, and revalidation points |
+| [CACHE_REVALIDATION_DOCUMENTATION.md](../CACHE_REVALIDATION_DOCUMENTATION.md) | Cache keys, tags, and revalidation points |
 
 ---
 
