@@ -14,6 +14,10 @@ import {
   saveEventVote,
   deleteEventVote,
 } from '@/lib/actions/vote/eventVote'
+import {
+  parseDatetimeLocal,
+  toDatetimeLocalValue,
+} from '@/lib/actions/vote/votingWindow'
 import Loader from '@/components/loader/Loader'
 
 interface EventVoteToolProps {
@@ -29,6 +33,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
   const [description, setDescription] = useState('')
   const [isEnabled, setIsEnabled] = useState(false)
   const [allowChangeVote, setAllowChangeVote] = useState(true)
+  const [votingStartsAt, setVotingStartsAt] = useState('')
+  const [votingEndsAt, setVotingEndsAt] = useState('')
   const [options, setOptions] = useState<OptionDraft[]>([
     { label: '' },
     { label: '' },
@@ -47,6 +53,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
           setDescription(vote.description || '')
           setIsEnabled(vote.isEnabled)
           setAllowChangeVote(vote.allowChangeVote)
+          setVotingStartsAt(toDatetimeLocalValue(vote.votingStartsAt))
+          setVotingEndsAt(toDatetimeLocalValue(vote.votingEndsAt))
           setOptions(
             vote.options.length >= 2
               ? vote.options.map((o) => ({ id: o.id, label: o.label }))
@@ -73,6 +81,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
         description,
         isEnabled,
         allowChangeVote,
+        votingStartsAt: parseDatetimeLocal(votingStartsAt),
+        votingEndsAt: parseDatetimeLocal(votingEndsAt),
         options,
       })
       if (!result.success) {
@@ -119,6 +129,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
       setDescription('')
       setIsEnabled(false)
       setAllowChangeVote(true)
+      setVotingStartsAt('')
+      setVotingEndsAt('')
       setOptions([{ label: '' }, { label: '' }])
       setBallotCount(0)
       toast.success('Vote tool removed')
@@ -138,9 +150,10 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        Let visitors vote for options you define. Each device and each logged-in
-        account can vote once. Nicknames are shown in full; logged-in emails are
-        partially masked publicly.
+        Let visitors vote for options you define. Results stay public and update
+        in real time. Casting votes is only allowed inside the voting window you
+        set below. Each device and account can vote once. Nicknames show in full;
+        logged-in emails are partially masked.
       </p>
 
       <div className="flex flex-wrap items-center gap-6">
@@ -160,6 +173,31 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
           />
           <Label htmlFor="vote-allow-change">Allow voters to change vote</Label>
         </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="vote-starts">Voting starts</Label>
+          <Input
+            id="vote-starts"
+            type="datetime-local"
+            value={votingStartsAt}
+            onChange={(e) => setVotingStartsAt(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="vote-ends">Voting ends</Label>
+          <Input
+            id="vote-ends"
+            type="datetime-local"
+            value={votingEndsAt}
+            onChange={(e) => setVotingEndsAt(e.target.value)}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          Leave blank for always-open casting while the tool is enabled. Results
+          are always visible when the tool is shown.
+        </p>
       </div>
 
       <div className="space-y-2">

@@ -217,6 +217,9 @@ model EventVote {
   isEnabled       Boolean  @default(false)
   /// When true, a voter may change their previous choice
   allowChangeVote Boolean  @default(true)
+  /// Voting window (results remain public/realtime even outside this window)
+  votingStartsAt  DateTime?
+  votingEndsAt    DateTime?
 
   event           Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
   options         EventVoteOption[]

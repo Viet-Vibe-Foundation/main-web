@@ -10,6 +10,11 @@ import {
   readVoterDeviceToken,
 } from '@/lib/actions/vote/voterDevice'
 import { displayVoterLabel } from '@/lib/actions/vote/maskEmail'
+import {
+  getVotingWindowStatus,
+  isVotingOpen,
+  type VotingWindowStatus,
+} from '@/lib/actions/vote/votingWindow'
 
 export type PublicVoteOption = {
   id: string
@@ -33,6 +38,10 @@ export type PublicEventVote = {
   question: string
   description: string | null
   allowChangeVote: boolean
+  votingStartsAt: Date | null
+  votingEndsAt: Date | null
+  votingStatus: VotingWindowStatus
+  isVotingOpen: boolean
   totalVotes: number
   options: PublicVoteOption[]
   ballots: PublicVoteBallot[]
@@ -82,6 +91,13 @@ export async function getPublicEventVote(
   const userId = session?.user?.id ?? null
   const deviceToken = await readVoterDeviceToken()
   const existing = await findExistingBallot(vote.id, userId, deviceToken)
+  const now = new Date()
+  const votingStatus = getVotingWindowStatus(
+    vote.votingStartsAt,
+    vote.votingEndsAt,
+    now
+  )
+  const votingOpen = isVotingOpen(vote.votingStartsAt, vote.votingEndsAt, now)
 
   const counts = new Map<string, number>()
   for (const option of vote.options) counts.set(option.id, 0)
@@ -95,6 +111,10 @@ export async function getPublicEventVote(
     question: vote.question,
     description: vote.description,
     allowChangeVote: vote.allowChangeVote,
+    votingStartsAt: vote.votingStartsAt,
+    votingEndsAt: vote.votingEndsAt,
+    votingStatus,
+    isVotingOpen: votingOpen,
     totalVotes: vote.ballots.length,
     options: vote.options.map((option) => ({
       id: option.id,
@@ -140,6 +160,8 @@ export type SaveEventVoteInput = {
   description?: string | null
   isEnabled: boolean
   allowChangeVote: boolean
+  votingStartsAt?: Date | null
+  votingEndsAt?: Date | null
   options: Array<{ id?: string; label: string }>
 }
 
@@ -152,6 +174,8 @@ export async function saveEventVote(input: SaveEventVoteInput) {
   const options = input.options
     .map((o) => ({ id: o.id, label: o.label.trim() }))
     .filter((o) => o.label.length > 0)
+  const votingStartsAt = input.votingStartsAt ?? null
+  const votingEndsAt = input.votingEndsAt ?? null
 
   if (!question) {
     return { success: false as const, error: 'Question is required' }
@@ -160,6 +184,16 @@ export async function saveEventVote(input: SaveEventVoteInput) {
     return {
       success: false as const,
       error: 'Add at least two voting options',
+    }
+  }
+  if (
+    votingStartsAt &&
+    votingEndsAt &&
+    votingStartsAt.getTime() >= votingEndsAt.getTime()
+  ) {
+    return {
+      success: false as const,
+      error: 'Voting start must be before voting end',
     }
   }
 
@@ -176,6 +210,8 @@ export async function saveEventVote(input: SaveEventVoteInput) {
         description: input.description?.trim() || null,
         isEnabled: input.isEnabled,
         allowChangeVote: input.allowChangeVote,
+        votingStartsAt,
+        votingEndsAt,
         options: {
           create: options.map((option, index) => ({
             label: option.label,
@@ -198,6 +234,8 @@ export async function saveEventVote(input: SaveEventVoteInput) {
             description: input.description?.trim() || null,
             isEnabled: input.isEnabled,
             allowChangeVote: input.allowChangeVote,
+            votingStartsAt,
+            votingEndsAt,
           },
         })
 
@@ -261,6 +299,17 @@ export async function castEventVote(input: CastVoteInput) {
 
   if (!vote || !vote.isEnabled) {
     return { success: false as const, error: 'Voting is not available' }
+  }
+
+  if (!isVotingOpen(vote.votingStartsAt, vote.votingEndsAt)) {
+    const status = getVotingWindowStatus(vote.votingStartsAt, vote.votingEndsAt)
+    return {
+      success: false as const,
+      error:
+        status === 'upcoming'
+          ? 'Voting has not started yet'
+          : 'Voting has ended',
+    }
   }
 
   const option = vote.options.find((o) => o.id === input.optionId)
