@@ -2,6 +2,7 @@
 import { prisma } from '@/lib/db'
 import { PaymentMethod, PaymentType } from '@prisma/client'
 import { revalidateTag } from 'next/cache'
+import { issueTicketsForPayment } from '@/lib/actions/ticket/issueTickets'
 
 interface AddPaymentParams {
   eventId?: string | null
@@ -53,6 +54,26 @@ export async function addPayment({
         note: note || null,
       },
     })
+
+    // Issue QR tickets for event admissions (not membership/shop)
+    if (
+      payment.eventId &&
+      paymentType !== 'Membership' &&
+      paymentType !== 'Shop' &&
+      paymentType !== 'Refund'
+    ) {
+      try {
+        await issueTicketsForPayment({
+          paymentId: payment.id,
+          eventId: payment.eventId,
+          eventTicketId: payment.eventTicketId,
+          quantity: payment.quantity,
+          seatNumber: payment.seatNumber,
+        })
+      } catch (issueError) {
+        console.error('[ISSUED_TICKET_CREATE_ERROR]', issueError)
+      }
+    }
 
     // Revalidate payment cache after creating new payment
     revalidateTag('payments')

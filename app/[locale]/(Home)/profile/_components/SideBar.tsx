@@ -29,6 +29,7 @@ export default function Sidebar({ locale, userId, user }: SidebarProps) {
     'delete-account': t('delete-account'),
     'admin-payment-management': t('payment-management'),
     'admin-email-composition': t('email-composition'),
+    'admin-ticket-checkin': t('ticket-checkin'),
     'admin-event-statistics': t('event-manager'),
     'admin-shop-statistics': 'Shop Manager',
     'admin-vvf-finance': 'VVF Finance',
@@ -54,6 +55,7 @@ export default function Sidebar({ locale, userId, user }: SidebarProps) {
       { key: 'admin-shop-statistics', label: 'Shop Manager' },
       { key: 'admin-vvf-finance', label: 'VVF Finance' },
       { key: 'admin-payment-management', label: t('payment-management') },
+      { key: 'admin-ticket-checkin', label: t('ticket-checkin'), hostVisible: true },
       { key: 'admin-email-composition', label: t('email-composition'), hostVisible: true },
     ]
 

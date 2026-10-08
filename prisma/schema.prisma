@@ -59,6 +59,7 @@ model Event {
   schedules          EventSchedule[]
   tickets            EventTicket[]
   payments           Payment[]
+  issuedTickets      IssuedTicket[]
   Review             Review[]
   form               EventForm[]
   jobs               Job[]
@@ -146,6 +147,7 @@ model EventTicket {
   eventId   String
   event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   payments  Payment[]
+  issuedTickets IssuedTicket[]
 }
 
 model EventForm {
@@ -186,6 +188,7 @@ model User {
   jobs                 Job[]
   payments             Payment[]     @relation("PaymentUser")
   monitoredPayments    Payment[]     @relation("PaymentMonitorUser")
+  checkedInTickets     IssuedTicket[] @relation("TicketCheckedInBy")
   posts                Post[]
   likedPosts           PostLikes[]
   visitedPosts         PostVisits[]
@@ -313,6 +316,34 @@ model Payment {
   eventTicket     EventTicket? @relation(fields: [eventTicketId], references: [id], onDelete: Restrict)
   shop            Shop?        @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopItem        ShopItem?    @relation(fields: [shopItemId], references: [id], onDelete: Restrict)
+  issuedTickets   IssuedTicket[]
+}
+
+/// One scannable ticket pass per purchased admission (quantity N => N rows).
+model IssuedTicket {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  /// Unguessable token encoded in the QR code
+  qrToken         String    @unique
+  seatLabel       String?
+  checkedInAt     DateTime?
+  checkedInById   String?
+
+  paymentId       String
+  eventId         String
+  eventTicketId   String?
+
+  payment         Payment      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  event           Event        @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  eventTicket     EventTicket? @relation(fields: [eventTicketId], references: [id], onDelete: Restrict)
+  checkedInBy     User?        @relation("TicketCheckedInBy", fields: [checkedInById], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([paymentId])
+  @@index([qrToken])
+  @@index([checkedInAt])
 }
 
 model CheckoutSessionData {

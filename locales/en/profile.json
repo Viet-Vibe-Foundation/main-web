@@ -62,6 +62,7 @@
   "password-success": "Your password was changed",
   "password-warning": "Your password must be at least 8 characters",
   "payment-management": "Client Payment Management",
+  "ticket-checkin": "Ticket Check-In",
   "phone": "Phone",
   "plan-type": "Plan Type",
   "price": "Price",

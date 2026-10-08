@@ -25,6 +25,7 @@ import PaymentManagement from './_components/PaymentManagement'
 import PrivacyPolicy from '../_components/_policy/PrivacyPolicy'
 import RefundPolicy from '../_components/_policy/RefundPolicy'
 import EmailComposition from './_components/EmailComposition'
+import TicketCheckIn from './_components/TicketCheckIn'
 import EventManagement from '../events/(Admin)/allEvents/_components/EventManagement'
 import CreateEventForm from './_components/CreateEventForm'
 import EventCategoryManager from './_components/EventCategoryManager'
@@ -179,6 +180,16 @@ export default async function ProfilePage({
         isSuperAdmin || isAdmin || isHost
       ) {
         return <EmailComposition user={user} />
+      }
+      return (
+        <p className="mt-10 text-center">
+          You do not have permission to view this page.
+        </p>
+      )
+
+    case 'admin-ticket-checkin':
+      if (isSuperAdmin || isAdmin || isHost) {
+        return <TicketCheckIn user={user} />
       }
       return (
         <p className="mt-10 text-center">

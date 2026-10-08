@@ -8,6 +8,9 @@ import { sendSubscriptionConfirmationEmail } from '@/lib/actions/email/sendSubsc
 import { sendShopOrderConfirmationEmail, ShopOrderItem } from '@/lib/actions/email/sendShopOrderConfirmationEmail'
 import { getFinalTicketPrice } from '@/lib/actions/price/getPrices'
 import { buildPostPaymentFormLink } from '@/lib/utils/buildPostPaymentFormLink'
+import { issueTicketsForPayment } from '@/lib/actions/ticket/issueTickets'
+import { buildTicketQrAttachments } from '@/lib/actions/ticket/generateTicketQr'
+import type { IssuedTicket } from '@prisma/client'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-04-30.basil',
@@ -835,6 +838,40 @@ export async function POST(req: NextRequest) {
         createdEventPaymentIds.push(createdPayment.id)
       }
 
+      // Issue one scannable QR ticket per admission unit (skip membership / shop)
+      let issuedTicketsForEmail: IssuedTicket[] = []
+      if (
+        metadata.type !== 'Membership' &&
+        metadata.eventId &&
+        createdEventPaymentIds.length > 0
+      ) {
+        try {
+          const createdPayments = await prisma.payment.findMany({
+            where: { id: { in: createdEventPaymentIds } },
+            select: {
+              id: true,
+              eventId: true,
+              eventTicketId: true,
+              quantity: true,
+              seatNumber: true,
+            },
+          })
+          for (const payment of createdPayments) {
+            if (!payment.eventId) continue
+            const issued = await issueTicketsForPayment({
+              paymentId: payment.id,
+              eventId: payment.eventId,
+              eventTicketId: payment.eventTicketId,
+              quantity: payment.quantity,
+              seatNumber: payment.seatNumber,
+            })
+            issuedTicketsForEmail.push(...issued)
+          }
+        } catch (issueError) {
+          console.error('[ISSUED_TICKET_CREATE_ERROR]', issueError)
+        }
+      }
+
       // Send payment confirmation email
       // - For event tickets: detailed ticket email
       // - For memberships: generic membership confirmation email
@@ -967,6 +1004,13 @@ export async function POST(req: NextRequest) {
                   seenEmails.add(key)
                   return true
                 })
+                const qrAttachments =
+                  issuedTicketsForEmail.length > 0
+                    ? await buildTicketQrAttachments(
+                        issuedTicketsForEmail,
+                        tickets.map((t) => t.type).join(', ')
+                      )
+                    : []
                 await Promise.all(
                   uniqueRecipients.map((r) =>
                     sendPaymentConfirmationEmail({
@@ -974,6 +1018,7 @@ export async function POST(req: NextRequest) {
                       firstName: r.firstName,
                       to: r.to,
                       formLink: r.formLink,
+                      qrAttachments,
                     })
                   )
                 )
@@ -1206,6 +1251,13 @@ export async function POST(req: NextRequest) {
                     return true
                   }
                 )
+                const singleQrAttachments =
+                  issuedTicketsForEmail.length > 0
+                    ? await buildTicketQrAttachments(
+                        issuedTicketsForEmail,
+                        ticket.type
+                      )
+                    : []
                 await Promise.all(
                   uniqueSingleRecipients.map((r) =>
                     sendPaymentConfirmationEmail({
@@ -1213,6 +1265,7 @@ export async function POST(req: NextRequest) {
                       firstName: r.firstName,
                       to: r.to,
                       formLink: r.formLink,
+                      qrAttachments: singleQrAttachments,
                     })
                   )
                 )

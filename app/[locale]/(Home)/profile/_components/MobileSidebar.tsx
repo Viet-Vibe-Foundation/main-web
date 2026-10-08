@@ -76,6 +76,7 @@ export default function MobileSidebar({
 
   const adminSectionKeysVisibleToHost = [
     'admin-event-statistics',
+    'admin-ticket-checkin',
     'admin-email-composition',
   ] as const
 
@@ -89,6 +90,7 @@ export default function MobileSidebar({
     'admin-shop-statistics',
     'admin-vvf-finance',
     'admin-payment-management',
+    'admin-ticket-checkin',
     'admin-email-composition',
   ] as const
 
