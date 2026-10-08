@@ -908,7 +908,9 @@ export default function EventStatistics({
                       variant="outline"
                     >
                       <FiEdit className="mr-2 h-4 w-4" />
-                      {activeTab === 'shopPayments' ? 'Manage Shop' : 'Manage Event'}
+                      {activeTab === 'shopPayments'
+                        ? t('manage-selected-shop')
+                        : t('edit-selected-event')}
                     </Button>
                   </div>
                 </div>
