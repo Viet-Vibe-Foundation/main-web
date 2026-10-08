@@ -8,6 +8,7 @@ import Image from 'next/image'
 // import { Separator } from '@radix-ui/react-separator'
 import CustomIcon from '@/components/icon/CustomIcon'
 import Link from 'next/link'
+import AdminBuildInfo from '@/app/[locale]/(Home)/_components/AdminBuildInfo'
 
 // Main Component
 const Footer = async ({ locale }: { locale: string }) => {
@@ -86,6 +87,8 @@ const Footer = async ({ locale }: { locale: string }) => {
             </Link>
           </div>
         </div>
+
+        <AdminBuildInfo />
       </div>
 
       {/* Old version */}
