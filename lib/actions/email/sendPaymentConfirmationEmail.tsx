@@ -2,6 +2,12 @@
 import React from 'react'
 import { Resend } from 'resend'
 import type { TicketQrAttachment } from '@/lib/actions/ticket/generateTicketQr'
+import {
+  buildConfirmationEmailValues,
+  DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  renderConfirmationEmailTemplate,
+  wrapConfirmationEmailHtml,
+} from '@/lib/actions/email/confirmationEmailTemplate'
 
 // Interfaces and Types
 interface EmailTemplatePaymentConfirmationProps {
@@ -43,6 +49,11 @@ interface SendPaymentConfirmationEmailProps {
   eventEndTime?: string | null
   formLink?: string | null
   qrAttachments?: TicketQrAttachment[]
+  /** Staff-customized subject with <<placeholders>>; falls back to default */
+  customSubject?: string | null
+  /** Staff-customized body with <<placeholders>>; falls back to default React template */
+  customBody?: string | null
+  guestName?: string
 }
 
 // Email Template Component
@@ -496,14 +507,90 @@ export async function sendPaymentConfirmationEmail({
   eventEndTime,
   formLink,
   qrAttachments = [],
+  customSubject,
+  customBody,
+  guestName,
 }: SendPaymentConfirmationEmailProps) {
   const resend = new Resend(process.env.RESEND_API_KEY_PRODUCTION)
 
+  const attachments = qrAttachments.map((qr) => ({
+    filename: qr.filename,
+    content: Buffer.from(qr.contentBase64, 'base64'),
+    contentType: 'image/png',
+  }))
+
   try {
+    const trimmedCustomBody = customBody?.trim()
+    const usesCustomTemplate = Boolean(trimmedCustomBody)
+
+    if (usesCustomTemplate && trimmedCustomBody) {
+      const values = buildConfirmationEmailValues({
+        firstName,
+        guestName,
+        ticketType,
+        pricePaid,
+        quantity,
+        currency,
+        eventTitle,
+        seatNumber,
+        eventStartDate,
+        eventEndDate,
+        eventLocation,
+        eventStartTime,
+        eventEndTime,
+        formLink,
+        qrCodes: qrAttachments.map(({ label, contentBase64 }) => ({
+          label,
+          contentBase64,
+        })),
+      })
+
+      const subjectTemplate =
+        customSubject?.trim() || DEFAULT_CONFIRMATION_EMAIL_SUBJECT
+      const subject = renderConfirmationEmailTemplate(subjectTemplate, values)
+      const bodyHtml = wrapConfirmationEmailHtml(
+        renderConfirmationEmailTemplate(trimmedCustomBody, values)
+      )
+
+      const result = await resend.emails.send({
+        from: 'VVF Admin <admin.tech@vietvibe.org>',
+        to,
+        subject,
+        html: bodyHtml,
+        attachments,
+      })
+      console.log('result sendPaymentConfirmationEmail (custom)', result)
+      if (result.error) {
+        console.error('[PAYMENT_CONFIRMATION_EMAIL_ERROR]', result.error)
+        throw result.error
+      }
+      return result
+    }
+
     const result = await resend.emails.send({
       from: 'VVF Admin <admin.tech@vietvibe.org>',
       to: to,
-      subject: 'Payment Successful - Your Ticket Confirmation',
+      subject: customSubject?.trim()
+        ? renderConfirmationEmailTemplate(
+            customSubject.trim(),
+            buildConfirmationEmailValues({
+              firstName,
+              guestName,
+              ticketType,
+              pricePaid,
+              quantity,
+              currency,
+              eventTitle,
+              seatNumber,
+              eventStartDate,
+              eventEndDate,
+              eventLocation,
+              eventStartTime,
+              eventEndTime,
+              formLink,
+            })
+          )
+        : DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
       react: EmailTemplatePaymentConfirmation({
         firstName,
         ticketType,
@@ -527,12 +614,7 @@ export async function sendPaymentConfirmationEmail({
           contentBase64,
         })),
       }),
-      // PNG attachments as a fallback for clients that strip inline data URIs
-      attachments: qrAttachments.map((qr) => ({
-        filename: qr.filename,
-        content: Buffer.from(qr.contentBase64, 'base64'),
-        contentType: 'image/png',
-      })),
+      attachments,
     })
     console.log('result sendPaymentConfirmationEmail', result)
     if (result.error) {

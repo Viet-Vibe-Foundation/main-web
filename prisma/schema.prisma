@@ -39,6 +39,10 @@ model Event {
   updatedAt          DateTime        @updatedAt
 
   formLink           String?
+  /// Optional staff-customized ticket confirmation email subject (supports <<placeholders>>)
+  confirmationEmailSubject String?
+  /// Optional staff-customized ticket confirmation email body HTML/text (supports <<placeholders>>)
+  confirmationEmailBody    String?  @db.Text
   imgUrl             String?
   isPublished        Boolean         @default(false)
   stripePriceId      String?

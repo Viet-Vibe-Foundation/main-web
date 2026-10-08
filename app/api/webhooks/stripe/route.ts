@@ -905,6 +905,8 @@ export async function POST(req: NextRequest) {
                       days: true,
                       startTime: true,
                       endTime: true,
+                      confirmationEmailSubject: true,
+                      confirmationEmailBody: true,
                     },
                   },
                 },
@@ -945,6 +947,9 @@ export async function POST(req: NextRequest) {
                   eventLocation: firstTicket.event.location,
                   eventStartTime: firstTicket.event.startTime,
                   eventEndTime: firstTicket.event.endTime,
+                  customSubject: firstTicket.event.confirmationEmailSubject,
+                  customBody: firstTicket.event.confirmationEmailBody,
+                  guestName: user.name || guestName || undefined,
                 }
                 const primaryEmail = user.email.trim()
                 const payerUserId =
@@ -1152,6 +1157,8 @@ export async function POST(req: NextRequest) {
                       days: true,
                       startTime: true,
                       endTime: true,
+                      confirmationEmailSubject: true,
+                      confirmationEmailBody: true,
                     },
                   },
                 },
@@ -1193,6 +1200,9 @@ export async function POST(req: NextRequest) {
                   eventLocation: ticket.event.location,
                   eventStartTime: ticket.event.startTime,
                   eventEndTime: ticket.event.endTime,
+                  customSubject: ticket.event.confirmationEmailSubject,
+                  customBody: ticket.event.confirmationEmailBody,
+                  guestName: user.name || guestName || undefined,
                 }
                 const primaryEmailSingle = user.email.trim()
                 const payerUserIdSingle =

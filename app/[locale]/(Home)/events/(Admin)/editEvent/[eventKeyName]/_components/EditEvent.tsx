@@ -31,6 +31,7 @@ import EventGallery from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventK
 import DeleteEventButton from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/DeleteEventButton'
 import EventSeating from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventSeating'
 import EventForm from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventForm'
+import EventConfirmationEmail from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventConfirmationEmail'
 
 interface EditEventProps {
   event: EventForEditing
@@ -348,6 +349,22 @@ export default function EditEvent({
               <span className="text-gray-500">Step XXII :</span> Event Form (Optional)
             </h2>
             <EventForm event={event} />
+          </div>
+
+          {/* Ticket confirmation email */}
+          <div className="col-span-full flex flex-col gap-y-8">
+            <h2 className="text-xl font-bold md:text-2xl xl:text-3xl">
+              <span className="text-gray-500">Step XXIII :</span> Ticket
+              Confirmation Email (Optional)
+            </h2>
+            <p>
+              Customize the email guests receive after purchasing a ticket.
+              Insert auto-filled fields with tokens like{' '}
+              <code>&lt;&lt;firstName&gt;&gt;</code>,{' '}
+              <code>&lt;&lt;ticketType&gt;&gt;</code>, or{' '}
+              <code>&lt;&lt;qrCodes&gt;&gt;</code>.
+            </p>
+            <EventConfirmationEmail event={event} />
           </div>
         </div>
       </div>
