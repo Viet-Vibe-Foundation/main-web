@@ -27,6 +27,7 @@ import EventGalleryCarousel from '../EventGalleryCarousel'
 import SponsorsList from '../../../_components/SponsorsList'
 import ServerError from '@/components/error/ServerError'
 import VolunteerSection from '../_class/VolunteerSection'
+import EventVotingPanel from '../EventVotingPanel'
 // Types
 import { EventSchedule, EventTicket, EventSponsor, SponsorTier, Job, Payment } from '@prisma/client'
 import { SeatingMap } from '../../../(Admin)/editEvent/[eventKeyName]/_components/EventSeating'
@@ -318,6 +319,13 @@ const ConcertDescriptions = async ({
             discounts={event.eventDiscounts}
           />
         </div>
+
+        <EventVotingPanel
+          eventId={event.id}
+          locale={locale}
+          isLoggedIn={Boolean(author)}
+          userEmail={session?.user?.email}
+        />
 
         {/* Sponsors */}
         {event.sponsors && event.sponsors.length > 0 && (
