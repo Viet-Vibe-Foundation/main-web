@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest'
 import {
   buildConfirmationEmailValues,
   buildQrCodesHtml,
+  filterPlaceholders,
+  getOpenPlaceholderQuery,
   renderConfirmationEmailTemplate,
 } from './confirmationEmailTemplate'
 
@@ -50,5 +52,22 @@ describe('confirmationEmailTemplate', () => {
     expect(values.quantity).toBe('3')
     expect(values.formLink).toContain('https://vietvibe.org/form')
     expect(values.eventStartDate).toContain('2026')
+  })
+
+  test('getOpenPlaceholderQuery detects unfinished <<token at cursor', () => {
+    const value = 'Hello <<fir'
+    expect(getOpenPlaceholderQuery(value, value.length)).toEqual({
+      query: 'fir',
+      replaceFrom: 6,
+      replaceTo: value.length,
+    })
+    expect(getOpenPlaceholderQuery('Hello <<firstName>>!', 19)).toBeNull()
+    expect(getOpenPlaceholderQuery('No token here', 5)).toBeNull()
+  })
+
+  test('filterPlaceholders matches key and label', () => {
+    expect(filterPlaceholders('qr').map((p) => p.key)).toContain('qrCodes')
+    expect(filterPlaceholders('first').map((p) => p.key)).toContain('firstName')
+    expect(filterPlaceholders('').length).toBeGreaterThan(5)
   })
 })

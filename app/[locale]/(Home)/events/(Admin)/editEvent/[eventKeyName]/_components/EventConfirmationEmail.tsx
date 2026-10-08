@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useRef, useState } from 'react'
+import React, { useCallback, useMemo, useRef, useState } from 'react'
 import { Event } from '@prisma/client'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { Pencil } from 'lucide-react'
+import { ChevronDown, Pencil } from 'lucide-react'
 import { getCurrentDateTime } from '@/lib/actions/date/getCurrentDateTime'
 import { cn } from '@/lib/utils'
 import { z } from 'zod'
@@ -21,12 +21,22 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { axiosInstance } from '@/lib/axios'
 import Loader from '@/components/loader/Loader'
 import {
   CONFIRMATION_EMAIL_PLACEHOLDERS,
   DEFAULT_CONFIRMATION_EMAIL_BODY,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  filterPlaceholders,
+  getOpenPlaceholderQuery,
+  type ConfirmationEmailPlaceholder,
 } from '@/lib/actions/email/confirmationEmailTemplate'
 
 interface EventConfirmationEmailProps {
@@ -38,6 +48,18 @@ const schema = z.object({
   confirmationEmailBody: z.string().max(20000),
 })
 
+type InsertTarget = 'subject' | 'body'
+type FieldName = 'confirmationEmailSubject' | 'confirmationEmailBody'
+
+type SuggestionState = {
+  target: InsertTarget
+  query: string
+  /** Start index of the open `<<...` fragment being typed */
+  replaceFrom: number
+  replaceTo: number
+  activeIndex: number
+} | null
+
 const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
   const [isEditing, setIsEditing] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -45,7 +67,9 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
   const currentDateTime = getCurrentDateTime()
   const bodyRef = useRef<HTMLTextAreaElement | null>(null)
   const subjectRef = useRef<HTMLInputElement | null>(null)
-  const [insertTarget, setInsertTarget] = useState<'subject' | 'body'>('body')
+  const [insertTarget, setInsertTarget] = useState<InsertTarget>('body')
+  const [dropdownValue, setDropdownValue] = useState<string>('')
+  const [suggestion, setSuggestion] = useState<SuggestionState>(null)
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -55,45 +79,145 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
     },
   })
 
-  const insertPlaceholder = (token: string) => {
-    if (insertTarget === 'subject') {
-      const input = subjectRef.current
-      const current = form.getValues('confirmationEmailSubject') || ''
-      if (!input) {
-        form.setValue('confirmationEmailSubject', `${current}${token}`, {
-          shouldDirty: true,
-        })
+  const suggestionItems = useMemo(() => {
+    if (!suggestion) return []
+    return filterPlaceholders(suggestion.query)
+  }, [suggestion])
+
+  const applyTokenAtRange = useCallback(
+    (
+      target: InsertTarget,
+      token: string,
+      replaceFrom: number,
+      replaceTo: number
+    ) => {
+      const fieldName: FieldName =
+        target === 'subject'
+          ? 'confirmationEmailSubject'
+          : 'confirmationEmailBody'
+      const el = target === 'subject' ? subjectRef.current : bodyRef.current
+      const current = form.getValues(fieldName) || ''
+      const next = current.slice(0, replaceFrom) + token + current.slice(replaceTo)
+      form.setValue(fieldName, next, { shouldDirty: true })
+      setSuggestion(null)
+
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.focus()
+        const pos = replaceFrom + token.length
+        el.setSelectionRange(pos, pos)
+      })
+    },
+    [form]
+  )
+
+  const insertPlaceholder = useCallback(
+    (token: string) => {
+      const el =
+        insertTarget === 'subject' ? subjectRef.current : bodyRef.current
+      const fieldName: FieldName =
+        insertTarget === 'subject'
+          ? 'confirmationEmailSubject'
+          : 'confirmationEmailBody'
+      const current = form.getValues(fieldName) || ''
+      const start = el?.selectionStart ?? current.length
+      const end = el?.selectionEnd ?? current.length
+      applyTokenAtRange(insertTarget, token, start, end)
+    },
+    [applyTokenAtRange, form, insertTarget]
+  )
+
+  const updateSuggestionsFromElement = useCallback(
+    (target: InsertTarget, value: string, cursor: number | null) => {
+      if (cursor === null || cursor === undefined) {
+        setSuggestion(null)
         return
       }
-      const start = input.selectionStart ?? current.length
-      const end = input.selectionEnd ?? current.length
-      const next = current.slice(0, start) + token + current.slice(end)
-      form.setValue('confirmationEmailSubject', next, { shouldDirty: true })
-      requestAnimationFrame(() => {
-        input.focus()
-        const pos = start + token.length
-        input.setSelectionRange(pos, pos)
+      const open = getOpenPlaceholderQuery(value, cursor)
+      if (!open) {
+        setSuggestion(null)
+        return
+      }
+      setSuggestion({
+        target,
+        query: open.query,
+        replaceFrom: open.replaceFrom,
+        replaceTo: open.replaceTo,
+        activeIndex: 0,
       })
+    },
+    []
+  )
+
+  const acceptSuggestion = useCallback(
+    (placeholder: ConfirmationEmailPlaceholder) => {
+      if (!suggestion) {
+        insertPlaceholder(placeholder.token)
+        return
+      }
+      applyTokenAtRange(
+        suggestion.target,
+        placeholder.token,
+        suggestion.replaceFrom,
+        suggestion.replaceTo
+      )
+    },
+    [applyTokenAtRange, insertPlaceholder, suggestion]
+  )
+
+  const onInsertFromDropdown = (key: string) => {
+    const placeholder = CONFIRMATION_EMAIL_PLACEHOLDERS.find((p) => p.key === key)
+    if (!placeholder) return
+    insertPlaceholder(placeholder.token)
+    setDropdownValue('')
+  }
+
+  const handleEditorKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
+    if (!suggestion || suggestionItems.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setSuggestion((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeIndex: (prev.activeIndex + 1) % suggestionItems.length,
+            }
+          : prev
+      )
       return
     }
 
-    const textarea = bodyRef.current
-    const current = form.getValues('confirmationEmailBody') || ''
-    if (!textarea) {
-      form.setValue('confirmationEmailBody', `${current}${token}`, {
-        shouldDirty: true,
-      })
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setSuggestion((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeIndex:
+                (prev.activeIndex - 1 + suggestionItems.length) %
+                suggestionItems.length,
+            }
+          : prev
+      )
       return
     }
-    const start = textarea.selectionStart ?? current.length
-    const end = textarea.selectionEnd ?? current.length
-    const next = current.slice(0, start) + token + current.slice(end)
-    form.setValue('confirmationEmailBody', next, { shouldDirty: true })
-    requestAnimationFrame(() => {
-      textarea.focus()
-      const pos = start + token.length
-      textarea.setSelectionRange(pos, pos)
-    })
+
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      const chosen = suggestionItems[suggestion.activeIndex]
+      if (chosen) {
+        e.preventDefault()
+        acceptSuggestion(chosen)
+      }
+      return
+    }
+
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      setSuggestion(null)
+    }
   }
 
   const loadDefaultTemplate = () => {
@@ -192,6 +316,49 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
     event.confirmationEmailBody?.trim() || event.confirmationEmailSubject?.trim()
   )
 
+  const SuggestionMenu = ({ target }: { target: InsertTarget }) => {
+    if (!suggestion || suggestion.target !== target || suggestionItems.length === 0) {
+      return null
+    }
+
+    return (
+      <div
+        className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-auto rounded-md border border-slate-200 bg-white shadow-lg"
+        role="listbox"
+        aria-label="Field suggestions"
+      >
+        <div className="border-b border-slate-100 px-3 py-2 text-xs text-muted-foreground">
+          Suggestions — Enter/Tab to insert, Esc to dismiss
+        </div>
+        {suggestionItems.map((item, index) => (
+          <button
+            key={item.key}
+            type="button"
+            role="option"
+            aria-selected={index === suggestion.activeIndex}
+            className={cn(
+              'flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-slate-100',
+              index === suggestion.activeIndex && 'bg-slate-100'
+            )}
+            onMouseDown={(e) => {
+              // Prevent blur before click inserts
+              e.preventDefault()
+              acceptSuggestion(item)
+            }}
+          >
+            <span className="font-medium text-gray-900">
+              {item.label}{' '}
+              <code className="text-xs text-red-700">{item.token}</code>
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {item.description}
+            </span>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <>
       {isLoading && <Loader />}
@@ -219,18 +386,65 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Customize the email guests receive after buying a ticket. Use tokens
-          like <code className="rounded bg-slate-200 px-1">&lt;&lt;firstName&gt;&gt;</code>{' '}
-          — they are filled automatically at send time. Leave blank to use the
-          default VVF template.
+          Customize the email guests receive after buying a ticket. Insert
+          auto-filled fields from the dropdown, or type{' '}
+          <code className="rounded bg-slate-200 px-1">&lt;&lt;</code> to open
+          suggestions. Leave blank to use the default VVF template.
         </p>
 
         {isEditing ? (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+              <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-3 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-1">
+                  <label className="text-sm font-medium">
+                    Insert field into {insertTarget}
+                  </label>
+                  <Select
+                    value={dropdownValue || undefined}
+                    onValueChange={onInsertFromDropdown}
+                  >
+                    <SelectTrigger className="bg-white">
+                      <SelectValue placeholder="Choose a field to insert…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONFIRMATION_EMAIL_PLACEHOLDERS.map((placeholder) => (
+                        <SelectItem key={placeholder.key} value={placeholder.key}>
+                          {placeholder.label} — {placeholder.token}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={insertTarget === 'subject' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setInsertTarget('subject')
+                      subjectRef.current?.focus()
+                    }}
+                  >
+                    Subject
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={insertTarget === 'body' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setInsertTarget('body')
+                      bodyRef.current?.focus()
+                    }}
+                  >
+                    Body
+                  </Button>
+                </div>
+              </div>
+
               <div className="flex flex-wrap gap-2">
-                <span className="w-full text-sm font-medium">
-                  Insert field into {insertTarget}:
+                <span className="flex w-full items-center gap-1 text-xs text-muted-foreground">
+                  Quick insert <ChevronDown className="h-3 w-3" />
                 </span>
                 {CONFIRMATION_EMAIL_PLACEHOLDERS.map((placeholder) => (
                   <Button
@@ -254,16 +468,51 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                   <FormItem>
                     <FormLabel>Subject</FormLabel>
                     <FormControl>
-                      <Input
-                        {...field}
-                        ref={(el) => {
-                          field.ref(el)
-                          subjectRef.current = el
-                        }}
-                        onFocus={() => setInsertTarget('subject')}
-                        className="bg-white p-2 text-gray-900"
-                        placeholder={DEFAULT_CONFIRMATION_EMAIL_SUBJECT}
-                      />
+                      <div className="relative">
+                        <Input
+                          {...field}
+                          ref={(el) => {
+                            field.ref(el)
+                            subjectRef.current = el
+                          }}
+                          onFocus={() => setInsertTarget('subject')}
+                          onBlur={() => {
+                            // Delay so suggestion click can fire
+                            setTimeout(() => {
+                              if (suggestion?.target === 'subject') {
+                                setSuggestion(null)
+                              }
+                            }, 150)
+                          }}
+                          onKeyDown={handleEditorKeyDown}
+                          onChange={(e) => {
+                            field.onChange(e)
+                            updateSuggestionsFromElement(
+                              'subject',
+                              e.target.value,
+                              e.target.selectionStart
+                            )
+                          }}
+                          onClick={(e) => {
+                            updateSuggestionsFromElement(
+                              'subject',
+                              e.currentTarget.value,
+                              e.currentTarget.selectionStart
+                            )
+                          }}
+                          onKeyUp={(e) => {
+                            updateSuggestionsFromElement(
+                              'subject',
+                              e.currentTarget.value,
+                              e.currentTarget.selectionStart
+                            )
+                          }}
+                          className="bg-white p-2 text-gray-900"
+                          placeholder={DEFAULT_CONFIRMATION_EMAIL_SUBJECT}
+                          autoComplete="off"
+                        />
+                        <SuggestionMenu target="subject" />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -277,16 +526,49 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                   <FormItem>
                     <FormLabel>Body (HTML or plain text)</FormLabel>
                     <FormControl>
-                      <Textarea
-                        {...field}
-                        ref={(el) => {
-                          field.ref(el)
-                          bodyRef.current = el
-                        }}
-                        onFocus={() => setInsertTarget('body')}
-                        className="min-h-[280px] bg-white p-2 font-mono text-sm text-gray-900"
-                        placeholder="Hi <<firstName>>, thanks for buying <<ticketType>>..."
-                      />
+                      <div className="relative">
+                        <Textarea
+                          {...field}
+                          ref={(el) => {
+                            field.ref(el)
+                            bodyRef.current = el
+                          }}
+                          onFocus={() => setInsertTarget('body')}
+                          onBlur={() => {
+                            setTimeout(() => {
+                              if (suggestion?.target === 'body') {
+                                setSuggestion(null)
+                              }
+                            }, 150)
+                          }}
+                          onKeyDown={handleEditorKeyDown}
+                          onChange={(e) => {
+                            field.onChange(e)
+                            updateSuggestionsFromElement(
+                              'body',
+                              e.target.value,
+                              e.target.selectionStart
+                            )
+                          }}
+                          onClick={(e) => {
+                            updateSuggestionsFromElement(
+                              'body',
+                              e.currentTarget.value,
+                              e.currentTarget.selectionStart
+                            )
+                          }}
+                          onKeyUp={(e) => {
+                            updateSuggestionsFromElement(
+                              'body',
+                              e.currentTarget.value,
+                              e.currentTarget.selectionStart
+                            )
+                          }}
+                          className="min-h-[280px] bg-white p-2 font-mono text-sm text-gray-900"
+                          placeholder="Hi <<firstName>>, thanks for buying <<ticketType>>..."
+                        />
+                        <SuggestionMenu target="body" />
+                      </div>
                     </FormControl>
                     <FormMessage />
                   </FormItem>

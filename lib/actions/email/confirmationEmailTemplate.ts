@@ -214,6 +214,39 @@ export function wrapConfirmationEmailHtml(bodyHtml: string): string {
 </html>`
 }
 
+/** Detect an open `<<partial` token at the cursor for suggestion menus. */
+export function getOpenPlaceholderQuery(
+  value: string,
+  cursor: number
+): { query: string; replaceFrom: number; replaceTo: number } | null {
+  const before = value.slice(0, cursor)
+  const openIdx = before.lastIndexOf('<<')
+  if (openIdx === -1) return null
+
+  const afterOpen = before.slice(openIdx + 2)
+  if (afterOpen.includes('>>') || /[\s<>]/.test(afterOpen)) return null
+
+  return {
+    query: afterOpen,
+    replaceFrom: openIdx,
+    replaceTo: cursor,
+  }
+}
+
+export function filterPlaceholders(
+  query: string,
+  placeholders: ConfirmationEmailPlaceholder[] = CONFIRMATION_EMAIL_PLACEHOLDERS
+): ConfirmationEmailPlaceholder[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return placeholders
+  return placeholders.filter(
+    (p) =>
+      p.key.toLowerCase().includes(q) ||
+      p.label.toLowerCase().includes(q) ||
+      p.token.toLowerCase().includes(q)
+  )
+}
+
 export function formatEmailDate(date?: Date | null): string {
   if (!date) return ''
   return new Date(date).toLocaleDateString('en-US', {
