@@ -17,6 +17,7 @@ import {
   FormControl,
   FormField,
   FormItem,
+  FormDescription,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
@@ -43,6 +44,7 @@ interface EventDiscount {
   minQuantity?: number // Only for Bulk Discount
   minTotal?: number // Only for Minimum Total Discount
   code?: string // Only for Code Discount
+  maxUses?: number // Only for Code Discount. Omit for unlimited uses.
   cannotBeStacked?: boolean // If true, this discount cannot be combined with other discounts
 }
 
@@ -59,6 +61,15 @@ const eventDiscountSchema = z
     minQuantity: z.coerce.number().min(1, 'Minimum quantity must be at least 1').optional().nullable(),
     minTotal: z.coerce.number().min(0, 'Minimum total must be at least 0').optional().nullable(),
     code: z.string().min(1, 'Code is required').optional().nullable(),
+    maxUses: z
+      .union([
+        z.null(),
+        z.coerce
+          .number()
+          .int('Maximum uses must be a whole number')
+          .min(1, 'Maximum uses must be at least 1'),
+      ])
+      .optional(),
     cannotBeStacked: z.boolean().default(false),
   })
   .refine(
@@ -138,6 +149,7 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
       minQuantity: null,
       minTotal: null,
       code: null,
+      maxUses: null,
       cannotBeStacked: false,
     },
   })
@@ -153,6 +165,7 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
       minQuantity: null,
       minTotal: null,
       code: null,
+      maxUses: null,
       cannotBeStacked: false,
     })
     setEditingDiscountId(null)
@@ -176,6 +189,7 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
       minQuantity: discount.minQuantity ?? null,
       minTotal: discount.minTotal ?? null,
       code: discount.code ?? null,
+      maxUses: discount.maxUses ?? null,
       cannotBeStacked: discount.cannotBeStacked ?? false,
     })
     setEditingDiscountId(discount.id)
@@ -196,6 +210,12 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
         minQuantity: values.type === 'Bulk Discount' ? values.minQuantity ?? undefined : undefined,
         minTotal: values.type === 'Minimum Total Discount' ? values.minTotal ?? undefined : undefined,
         code: values.type === 'Code Discount' ? values.code ?? undefined : undefined,
+        maxUses:
+          values.type === 'Code Discount' &&
+          values.maxUses !== null &&
+          values.maxUses !== undefined
+            ? values.maxUses
+            : undefined,
         cannotBeStacked: values.cannotBeStacked ?? false,
       }
 
@@ -429,7 +449,9 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
                       {discount.type === 'Code Discount' && discount.code && (
                         <span className="text-sm font-normal text-muted-foreground">
                           {' '}
-                          (Code: {discount.code})
+                          {discount.maxUses != null
+                            ? `(Code: ${discount.code}, max ${discount.maxUses} use${discount.maxUses === 1 ? '' : 's'})`
+                            : `(Code: ${discount.code})`}
                         </span>
                       )}
                     </div>
@@ -641,6 +663,37 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
                                 }}
                               />
                             </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
+                    {/* Max uses - Only shown for Code Discount. Empty means unlimited. */}
+                    {discountType === 'Code Discount' && (
+                      <FormField
+                        control={discountForm.control}
+                        name="maxUses"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Maximum Uses</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="1"
+                                placeholder="eg: 50"
+                                {...field}
+                                value={field.value ?? ''}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  field.onChange(value === '' ? null : Number(value))
+                                }}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Leave empty for unlimited uses. Each completed order counts as one use.
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
