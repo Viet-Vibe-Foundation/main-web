@@ -1,0 +1,24 @@
+---
+description: Agent workflow — read AGENTS.md, file tools, PowerShell shell
+alwaysApply: true
+---
+
+# Agent conventions (main-web)
+
+At the start of substantial tasks in this repo, **read [AGENTS.md](../../AGENTS.md) with the Read tool** (not the shell). Keep that file as the source of truth; update it when team conventions change.
+
+## Read files with IDE tools
+
+- Use **Read**, **Grep**, and **Glob** for source and config.
+- Do **not** dump file contents via terminal (`cat`, `type`, `Get-Content`, `head`, `tail`, etc.) or scripts (`python -c`, `node -e`, etc.).
+
+## PowerShell — no `&&`
+
+Windows PowerShell 5.x rejects `&&`. In **agent terminal commands**, do not chain with `&&`.
+
+- Prefer **one command per shell invocation**, or `;`, or `if ($LASTEXITCODE -eq 0) { ... }`.
+- Existing `package.json` scripts using `&&` under `yarn`/`npm run` are unchanged unless you are fixing Windows compatibility.
+
+## Quick project cues
+
+Next.js 15 App Router, TypeScript, Tailwind, Prisma, NextAuth; **Yarn** for installs and builds. See AGENTS.md for paths and workflow.

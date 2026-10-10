@@ -148,9 +148,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
-export function buildQrCodesHtml(
-  qrCodes: Array<{ label: string; contentBase64: string }>
-): string {
+export type TicketQrInlineImage = {
+  contentId: string
+  label: string
+}
+
+export function buildQrCodesHtml(qrCodes: TicketQrInlineImage[]): string {
   if (!qrCodes.length) {
     return '<p style="font-size:13px;color:#6b7280;">(QR codes will appear here after purchase.)</p>'
   }
@@ -160,7 +163,7 @@ export function buildQrCodesHtml(
       (qr) => `
       <div style="text-align:center;margin:0 0 20px 0;">
         <div style="font-size:13px;font-weight:bold;color:#374151;margin-bottom:8px;">${escapeHtml(qr.label)}</div>
-        <img src="data:image/png;base64,${qr.contentBase64}" alt="QR code for ${escapeHtml(qr.label)}" width="200" height="200" style="display:block;margin:0 auto;width:200px;height:200px;border:1px solid #e5e7eb;background:#ffffff;" />
+        <img src="cid:${escapeHtml(qr.contentId)}" alt="QR code for ${escapeHtml(qr.label)}" width="200" height="200" style="display:block;margin:0 auto;width:200px;height:200px;border:1px solid #e5e7eb;background:#ffffff;" />
       </div>`
     )
     .join('')
@@ -187,6 +190,32 @@ export function renderConfirmationEmailTemplate(
     }
     return escapeHtml(value)
   })
+}
+
+/** Placeholders whose values are HTML and so cannot appear in a subject. */
+const HTML_ONLY_PLACEHOLDERS: ConfirmationEmailPlaceholderKey[] = [
+  'qrCodes',
+  'formLink',
+]
+
+/**
+ * Render a subject line as plain text: values are inserted as-is (no HTML
+ * escaping), HTML-only placeholders are dropped, and line breaks are removed
+ * because email subjects must be a single line.
+ */
+export function renderConfirmationEmailSubject(
+  template: string,
+  values: ConfirmationEmailValues
+): string {
+  return template
+    .replace(PLACEHOLDER_REGEX, (_match, rawKey: string) => {
+      const key = rawKey as ConfirmationEmailPlaceholderKey
+      if (HTML_ONLY_PLACEHOLDERS.includes(key)) return ''
+      return values[key] ?? ''
+    })
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
 }
 
 export function wrapConfirmationEmailHtml(bodyHtml: string): string {
@@ -271,7 +300,7 @@ export function buildConfirmationEmailValues(input: {
   eventStartTime?: string | null
   eventEndTime?: string | null
   formLink?: string | null
-  qrCodes?: Array<{ label: string; contentBase64: string }>
+  qrCodes?: TicketQrInlineImage[]
 }): ConfirmationEmailValues {
   const currency = (input.currency || 'CAD').toUpperCase()
   const formLink = input.formLink?.trim()

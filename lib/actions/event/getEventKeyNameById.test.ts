@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
 const mockFindUnique = vi.fn()
+const mockCanAccess = vi.fn()
+
+vi.mock('@/lib/actions/payment/canAccessEventPaymentData', () => ({
+  canAccessEventPaymentData: (...args: unknown[]) => mockCanAccess(...args),
+}))
 
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -15,6 +20,13 @@ import { getEventKeyNameById } from './getEvent'
 describe('getEventKeyNameById', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockCanAccess.mockResolvedValue(true)
+  })
+
+  test('returns null without querying when the user cannot access the event', async () => {
+    mockCanAccess.mockResolvedValue(false)
+    await expect(getEventKeyNameById('evt_other')).resolves.toBeNull()
+    expect(mockFindUnique).not.toHaveBeenCalled()
   })
 
   test('returns keyName for an event id', async () => {

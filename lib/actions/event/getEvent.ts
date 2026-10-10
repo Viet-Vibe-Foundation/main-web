@@ -3,6 +3,7 @@
 import { Prisma } from '@prisma/client'
 import { unstable_cache } from 'next/cache'
 import { withDbRetry } from '@/lib/db/withDbRetry'
+import { canAccessEventPaymentData } from '@/lib/actions/payment/canAccessEventPaymentData'
 
 /** All events row for admin list (`getAllEvents`) */
 export type EventWithHostsForAdmin = Prisma.EventGetPayload<{
@@ -215,12 +216,19 @@ export const getEventTitleByKeyName = unstable_cache(
   }
 )
 
-/** Resolve an event's keyName by id (used by Event Manager → Manage Event). */
+/**
+ * Resolve an event's keyName by id (used by Event Manager → Manage Event).
+ * Only admins, or hosts of that event, may resolve it.
+ */
 export async function getEventKeyNameById(
   eventId: string
 ): Promise<string | null> {
   const { prisma } = await import('@/lib/db')
   try {
+    if (!(await canAccessEventPaymentData(eventId))) {
+      return null
+    }
+
     const event = await prisma.event.findUnique({
       where: { id: eventId },
       select: { keyName: true },

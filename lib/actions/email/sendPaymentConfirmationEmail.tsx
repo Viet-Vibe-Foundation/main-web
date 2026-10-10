@@ -1,10 +1,15 @@
 // Libraries
 import React from 'react'
 import { Resend } from 'resend'
-import type { TicketQrAttachment } from '@/lib/actions/ticket/generateTicketQr'
+import {
+  toResendInlineQrAttachments,
+  type TicketQrAttachment,
+} from '@/lib/actions/ticket/generateTicketQr'
+import type { TicketQrInlineImage } from '@/lib/actions/email/confirmationEmailTemplate'
 import {
   buildConfirmationEmailValues,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  renderConfirmationEmailSubject,
   renderConfirmationEmailTemplate,
   wrapConfirmationEmailHtml,
 } from '@/lib/actions/email/confirmationEmailTemplate'
@@ -27,7 +32,7 @@ interface EmailTemplatePaymentConfirmationProps {
   eventStartTime?: string | null
   eventEndTime?: string | null
   formLink?: string | null
-  qrCodes?: Array<{ contentId: string; label: string; contentBase64: string }>
+  qrCodes?: TicketQrInlineImage[]
 }
 
 interface SendPaymentConfirmationEmailProps {
@@ -412,7 +417,7 @@ const EmailTemplatePaymentConfirmation = ({
                       </div>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={`data:image/png;base64,${qr.contentBase64}`}
+                        src={`cid:${qr.contentId}`}
                         alt={`QR code for ${qr.label}`}
                         width={200}
                         height={200}
@@ -513,11 +518,7 @@ export async function sendPaymentConfirmationEmail({
 }: SendPaymentConfirmationEmailProps) {
   const resend = new Resend(process.env.RESEND_API_KEY_PRODUCTION)
 
-  const attachments = qrAttachments.map((qr) => ({
-    filename: qr.filename,
-    content: Buffer.from(qr.contentBase64, 'base64'),
-    contentType: 'image/png',
-  }))
+  const attachments = toResendInlineQrAttachments(qrAttachments)
 
   try {
     const trimmedCustomBody = customBody?.trim()
@@ -539,15 +540,17 @@ export async function sendPaymentConfirmationEmail({
         eventStartTime,
         eventEndTime,
         formLink,
-        qrCodes: qrAttachments.map(({ label, contentBase64 }) => ({
+        qrCodes: qrAttachments.map(({ contentId, label }) => ({
+          contentId,
           label,
-          contentBase64,
         })),
       })
 
       const subjectTemplate =
         customSubject?.trim() || DEFAULT_CONFIRMATION_EMAIL_SUBJECT
-      const subject = renderConfirmationEmailTemplate(subjectTemplate, values)
+      const subject =
+        renderConfirmationEmailSubject(subjectTemplate, values) ||
+        DEFAULT_CONFIRMATION_EMAIL_SUBJECT
       const bodyHtml = wrapConfirmationEmailHtml(
         renderConfirmationEmailTemplate(trimmedCustomBody, values)
       )
@@ -571,7 +574,7 @@ export async function sendPaymentConfirmationEmail({
       from: 'VVF Admin <admin.tech@vietvibe.org>',
       to: to,
       subject: customSubject?.trim()
-        ? renderConfirmationEmailTemplate(
+        ? renderConfirmationEmailSubject(
             customSubject.trim(),
             buildConfirmationEmailValues({
               firstName,
@@ -608,10 +611,9 @@ export async function sendPaymentConfirmationEmail({
         eventStartTime,
         eventEndTime,
         formLink,
-        qrCodes: qrAttachments.map(({ contentId, label, contentBase64 }) => ({
+        qrCodes: qrAttachments.map(({ contentId, label }) => ({
           contentId,
           label,
-          contentBase64,
         })),
       }),
       attachments,

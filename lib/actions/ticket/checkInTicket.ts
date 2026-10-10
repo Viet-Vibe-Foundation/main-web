@@ -150,15 +150,29 @@ export async function checkInTicketByQr(rawPayload: string) {
     }
   }
 
-  const updated = await prisma.issuedTicket.update({
-    where: { id: existing.id },
+  // Conditional update keeps check-in atomic: if another scanner got here
+  // first, checkedInAt is no longer null and no row is updated.
+  const { count } = await prisma.issuedTicket.updateMany({
+    where: { id: existing.id, checkedInAt: null },
     data: {
       checkedInAt: new Date(),
       checkedInById: staff.userId,
     },
   })
 
-  const ticket = await loadTicketByToken(updated.qrToken)
+  const ticket = await loadTicketByToken(existing.qrToken)
+
+  if (count === 0) {
+    return {
+      success: false as const,
+      error: `Already checked in${
+        ticket?.checkedInAt
+          ? ` at ${ticket.checkedInAt.toLocaleString()}`
+          : ''
+      }${ticket?.checkedInByName ? ` by ${ticket.checkedInByName}` : ''}`,
+      ticket,
+    }
+  }
 
   return {
     success: true as const,

@@ -49,6 +49,10 @@ export type IssueTicketsForPaymentInput = {
  * Create one IssuedTicket per admission unit.
  * Seated purchases: one ticket per seat label.
  * Non-seated: one ticket per quantity.
+ *
+ * Idempotent per payment: tickets that already exist for the payment are
+ * reused, and only the missing ones are created. This keeps webhook retries
+ * and recovery runs from minting extra valid QR codes.
  */
 export async function issueTicketsForPayment(
   input: IssueTicketsForPaymentInput,
@@ -65,13 +69,27 @@ export async function issueTicketsForPayment(
 
   const count = seatLabels.length > 0 ? seatLabels.length : quantity
 
-  const data = Array.from({ length: count }, (_, index) => ({
-    qrToken: createQrToken(),
-    paymentId: input.paymentId,
-    eventId: input.eventId,
-    eventTicketId: input.eventTicketId || null,
-    seatLabel: seatLabels[index] || null,
-  }))
+  const existing = await db.issuedTicket.findMany({
+    where: { paymentId: input.paymentId },
+    orderBy: { createdAt: 'asc' },
+  })
+  if (existing.length >= count) {
+    return existing
+  }
+
+  const data = Array.from(
+    { length: count - existing.length },
+    (_, offset) => {
+      const index = existing.length + offset
+      return {
+        qrToken: createQrToken(),
+        paymentId: input.paymentId,
+        eventId: input.eventId,
+        eventTicketId: input.eventTicketId || null,
+        seatLabel: seatLabels[index] || null,
+      }
+    }
+  )
 
   await db.issuedTicket.createMany({ data })
 

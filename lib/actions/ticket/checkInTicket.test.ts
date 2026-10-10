@@ -3,7 +3,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest'
 const mockAuth = vi.fn()
 const mockCanAccess = vi.fn()
 const mockFindUnique = vi.fn()
-const mockUpdate = vi.fn()
+const mockUpdateMany = vi.fn()
 const mockCount = vi.fn()
 
 vi.mock('@/auth', () => ({
@@ -18,7 +18,7 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     issuedTicket: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
-      update: (...args: unknown[]) => mockUpdate(...args),
+      updateMany: (...args: unknown[]) => mockUpdateMany(...args),
       count: (...args: unknown[]) => mockCount(...args),
     },
   },
@@ -77,20 +77,35 @@ describe('checkInTicket', () => {
           checkedInBy: { name: 'Staff' },
         })
       )
-    mockUpdate.mockResolvedValue({
-      qrToken: 'vvf_ticket_abc',
-    })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
 
     const result = await checkInTicketByQr('vvf_ticket_abc')
     expect(result.success).toBe(true)
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'issued_1' },
+        where: { id: 'issued_1', checkedInAt: null },
         data: expect.objectContaining({
           checkedInById: 'staff_1',
         }),
       })
     )
+  })
+
+  test('checkInTicketByQr fails when another scanner wins the race', async () => {
+    mockFindUnique
+      .mockResolvedValueOnce(ticketRow())
+      .mockResolvedValueOnce(
+        ticketRow({
+          checkedInAt: new Date('2026-10-08T12:00:00Z'),
+          checkedInBy: { name: 'Other staff' },
+        })
+      )
+    mockUpdateMany.mockResolvedValue({ count: 0 })
+
+    const result = await checkInTicketByQr('vvf_ticket_abc')
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Already checked in/)
+    expect(result.error).toMatch(/Other staff/)
   })
 
   test('checkInTicketByQr rejects already checked-in tickets', async () => {
@@ -104,7 +119,7 @@ describe('checkInTicket', () => {
     const result = await checkInTicketByQr('vvf_ticket_abc')
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/Already checked in/)
-    expect(mockUpdate).not.toHaveBeenCalled()
+    expect(mockUpdateMany).not.toHaveBeenCalled()
   })
 
   test('checkInTicketByQr rejects refunded tickets', async () => {
