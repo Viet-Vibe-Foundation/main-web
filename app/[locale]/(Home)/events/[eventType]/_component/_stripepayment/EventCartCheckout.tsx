@@ -161,8 +161,11 @@ export default function EventCartCheckout({
           })
         } else {
           setAppliedCodeDiscount(null)
-          toast.error('Invalid discount code', {
-            description: result.reason || 'The discount code is not valid. Please try again.',
+          const limitReached = result.reason === 'Code usage limit reached'
+          toast.error(limitReached ? 'Discount code limit reached' : 'Invalid discount code', {
+            description: limitReached
+              ? 'This code has already been used the maximum number of times.'
+              : result.reason || 'The discount code is not valid. Please try again.',
             style: { color: '#ef4444' },
           })
         }

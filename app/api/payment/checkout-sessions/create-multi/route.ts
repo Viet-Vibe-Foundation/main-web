@@ -321,8 +321,13 @@ export async function POST(req: Request) {
             discountUnit: verificationResult.discountUnit!,
             cannotBeStacked: verificationResult.cannotBeStacked,
           }
+        } else if (verificationResult.reason === 'Code usage limit reached') {
+          return NextResponse.json(
+            { message: 'This discount code has reached its usage limit.' },
+            { status: 400 }
+          )
         }
-        // If verification fails, silently ignore (don't apply code discount)
+        // If verification fails for any other reason, silently ignore (don't apply code discount)
       } catch (error) {
         console.error('Failed to verify discount code:', error)
         // Silently ignore verification errors
