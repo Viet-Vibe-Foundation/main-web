@@ -29,12 +29,12 @@ describe('confirmationEmailTemplate', () => {
 
   test('allows trusted HTML for qrCodes', () => {
     const qrHtml = buildQrCodesHtml([
-      { label: 'Ticket #1', contentBase64: 'abc123' },
+      { contentId: 'ticket-qr-1', label: 'Ticket #1' },
     ])
     const rendered = renderConfirmationEmailTemplate('Codes: <<qrCodes>>', {
       qrCodes: qrHtml,
     })
-    expect(rendered).toContain('data:image/png;base64,abc123')
+    expect(rendered).toContain('src="cid:ticket-qr-1"')
     expect(rendered).toContain('Ticket #1')
   })
 

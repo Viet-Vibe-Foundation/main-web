@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   buildTicketQrAttachments,
   generateTicketQrPngBase64,
+  toResendInlineQrAttachments,
 } from './generateTicketQr'
 
 describe('generateTicketQr', () => {
@@ -28,5 +29,9 @@ describe('generateTicketQr', () => {
     expect(attachments[0].contentId).toBe('ticket-qr-a')
     expect(attachments[1].label).toContain('VIP #2')
     expect(attachments[1].contentBase64.startsWith('iVBOR')).toBe(true)
+
+    const resendAttachments = toResendInlineQrAttachments(attachments)
+    expect(resendAttachments[0].contentId).toBe('ticket-qr-a')
+    expect(resendAttachments[0].content).toBeInstanceOf(Buffer)
   })
 })

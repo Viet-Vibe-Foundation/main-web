@@ -50,3 +50,13 @@ export async function buildTicketQrAttachments(
 
   return attachments
 }
+
+/** Resend inline PNG attachments (HTML must reference the same contentId via cid:). */
+export function toResendInlineQrAttachments(attachments: TicketQrAttachment[]) {
+  return attachments.map((qr) => ({
+    filename: qr.filename,
+    content: Buffer.from(qr.contentBase64, 'base64'),
+    contentType: 'image/png',
+    contentId: qr.contentId,
+  }))
+}
