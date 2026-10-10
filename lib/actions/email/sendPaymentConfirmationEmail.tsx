@@ -1,6 +1,14 @@
 // Libraries
 import React from 'react'
 import { Resend } from 'resend'
+import type { TicketQrAttachment } from '@/lib/actions/ticket/generateTicketQr'
+import {
+  buildConfirmationEmailValues,
+  DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  renderConfirmationEmailSubject,
+  renderConfirmationEmailTemplate,
+  wrapConfirmationEmailHtml,
+} from '@/lib/actions/email/confirmationEmailTemplate'
 
 // Interfaces and Types
 interface EmailTemplatePaymentConfirmationProps {
@@ -20,6 +28,7 @@ interface EmailTemplatePaymentConfirmationProps {
   eventStartTime?: string | null
   eventEndTime?: string | null
   formLink?: string | null
+  qrCodes?: Array<{ contentId: string; label: string; contentBase64: string }>
 }
 
 interface SendPaymentConfirmationEmailProps {
@@ -40,6 +49,12 @@ interface SendPaymentConfirmationEmailProps {
   eventStartTime?: string | null
   eventEndTime?: string | null
   formLink?: string | null
+  qrAttachments?: TicketQrAttachment[]
+  /** Staff-customized subject with <<placeholders>>; falls back to default */
+  customSubject?: string | null
+  /** Staff-customized body with <<placeholders>>; falls back to default React template */
+  customBody?: string | null
+  guestName?: string
 }
 
 // Email Template Component
@@ -60,6 +75,7 @@ const EmailTemplatePaymentConfirmation = ({
   eventStartTime,
   eventEndTime,
   formLink,
+  qrCodes = [],
 }: EmailTemplatePaymentConfirmationProps) => {
   const currencyLabel = currency.toUpperCase()
   const formattedPrice = pricePaid.toFixed(2)
@@ -342,6 +358,82 @@ const EmailTemplatePaymentConfirmation = ({
           </tbody>
         </table>
 
+        {qrCodes.length > 0 && (
+          <div
+            style={{
+              marginTop: '24px',
+              marginBottom: '20px',
+              padding: '16px',
+              borderRadius: '6px',
+              border: '1px solid #e5e7eb',
+              backgroundColor: '#f9fafb',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '16px',
+                color: '#111827',
+                margin: '0 0 8px 0',
+                fontWeight: 'bold',
+              }}
+            >
+              Your entry QR {qrCodes.length > 1 ? 'codes' : 'code'}
+            </p>
+            <p
+              style={{
+                fontSize: '13px',
+                color: '#6b7280',
+                margin: '0 0 16px 0',
+              }}
+            >
+              Show {qrCodes.length > 1 ? 'each code' : 'this code'} at the door for
+              check-in. You received {qrCodes.length} ticket
+              {qrCodes.length > 1 ? 's' : ''} — one QR per ticket.
+            </p>
+            <table cellPadding={0} cellSpacing={0} width="100%">
+              <tbody>
+                {qrCodes.map((qr) => (
+                  <tr key={qr.contentId}>
+                    <td
+                      style={{
+                        textAlign: 'center',
+                        paddingBottom: '20px',
+                        verticalAlign: 'top',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          fontWeight: 'bold',
+                          color: '#374151',
+                          marginBottom: '8px',
+                        }}
+                      >
+                        {qr.label}
+                      </div>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`data:image/png;base64,${qr.contentBase64}`}
+                        alt={`QR code for ${qr.label}`}
+                        width={200}
+                        height={200}
+                        style={{
+                          display: 'block',
+                          margin: '0 auto',
+                          width: '200px',
+                          height: '200px',
+                          border: '1px solid #e5e7eb',
+                          backgroundColor: '#ffffff',
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {formLink && (
           <div
             style={{
@@ -415,14 +507,93 @@ export async function sendPaymentConfirmationEmail({
   eventStartTime,
   eventEndTime,
   formLink,
+  qrAttachments = [],
+  customSubject,
+  customBody,
+  guestName,
 }: SendPaymentConfirmationEmailProps) {
   const resend = new Resend(process.env.RESEND_API_KEY_PRODUCTION)
 
+  const attachments = qrAttachments.map((qr) => ({
+    filename: qr.filename,
+    content: Buffer.from(qr.contentBase64, 'base64'),
+    contentType: 'image/png',
+  }))
+
   try {
+    const trimmedCustomBody = customBody?.trim()
+    const usesCustomTemplate = Boolean(trimmedCustomBody)
+
+    if (usesCustomTemplate && trimmedCustomBody) {
+      const values = buildConfirmationEmailValues({
+        firstName,
+        guestName,
+        ticketType,
+        pricePaid,
+        quantity,
+        currency,
+        eventTitle,
+        seatNumber,
+        eventStartDate,
+        eventEndDate,
+        eventLocation,
+        eventStartTime,
+        eventEndTime,
+        formLink,
+        qrCodes: qrAttachments.map(({ label, contentBase64 }) => ({
+          label,
+          contentBase64,
+        })),
+      })
+
+      const subjectTemplate =
+        customSubject?.trim() || DEFAULT_CONFIRMATION_EMAIL_SUBJECT
+      const subject =
+        renderConfirmationEmailSubject(subjectTemplate, values) ||
+        DEFAULT_CONFIRMATION_EMAIL_SUBJECT
+      const bodyHtml = wrapConfirmationEmailHtml(
+        renderConfirmationEmailTemplate(trimmedCustomBody, values)
+      )
+
+      const result = await resend.emails.send({
+        from: 'VVF Admin <admin.tech@vietvibe.org>',
+        to,
+        subject,
+        html: bodyHtml,
+        attachments,
+      })
+      console.log('result sendPaymentConfirmationEmail (custom)', result)
+      if (result.error) {
+        console.error('[PAYMENT_CONFIRMATION_EMAIL_ERROR]', result.error)
+        throw result.error
+      }
+      return result
+    }
+
     const result = await resend.emails.send({
       from: 'VVF Admin <admin.tech@vietvibe.org>',
       to: to,
-      subject: 'Payment Successful - Your Ticket Confirmation',
+      subject: customSubject?.trim()
+        ? renderConfirmationEmailSubject(
+            customSubject.trim(),
+            buildConfirmationEmailValues({
+              firstName,
+              guestName,
+              ticketType,
+              pricePaid,
+              quantity,
+              currency,
+              eventTitle,
+              seatNumber,
+              eventStartDate,
+              eventEndDate,
+              eventLocation,
+              eventStartTime,
+              eventEndTime,
+              formLink,
+            })
+          )
+        : DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
       react: EmailTemplatePaymentConfirmation({
         firstName,
         ticketType,
@@ -440,7 +611,13 @@ export async function sendPaymentConfirmationEmail({
         eventStartTime,
         eventEndTime,
         formLink,
+        qrCodes: qrAttachments.map(({ contentId, label, contentBase64 }) => ({
+          contentId,
+          label,
+          contentBase64,
+        })),
       }),
+      attachments,
     })
     console.log('result sendPaymentConfirmationEmail', result)
     if (result.error) {

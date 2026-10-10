@@ -169,6 +169,7 @@ export const getCachedPublishedEventsForReviews = unstable_cache(
           select: {
             id: true,
             title: true,
+            keyName: true,
           },
           orderBy: {
             updatedAt: 'desc', // Latest events first
@@ -178,7 +179,7 @@ export const getCachedPublishedEventsForReviews = unstable_cache(
       { label: 'getCachedPublishedEventsForReviews' }
     )
   },
-  ['published-events-reviews'],
+  ['published-events-reviews-v2'],
   {
     revalidate: 604800, // Cache for 7 days (revalidateTag handles on-demand invalidation)
     tags: ['events', 'reviews'],
@@ -401,6 +402,7 @@ export async function getPublishedEventsForReviewsWithSearch(
       select: {
         id: true,
         title: true,
+        keyName: true,
       },
       orderBy: {
         updatedAt: 'desc', // Latest events first

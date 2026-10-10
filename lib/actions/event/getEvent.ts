@@ -3,6 +3,7 @@
 import { Prisma } from '@prisma/client'
 import { unstable_cache } from 'next/cache'
 import { withDbRetry } from '@/lib/db/withDbRetry'
+import { canAccessEventPaymentData } from '@/lib/actions/payment/canAccessEventPaymentData'
 
 /** All events row for admin list (`getAllEvents`) */
 export type EventWithHostsForAdmin = Prisma.EventGetPayload<{
@@ -23,6 +24,7 @@ export const getAllPublishedEvents = unstable_cache(
           select: selectFields || {
             id: true,
             title: true,
+            keyName: true,
           },
           orderBy: {
             createdAt: 'desc',
@@ -31,7 +33,7 @@ export const getAllPublishedEvents = unstable_cache(
       { label: 'getAllPublishedEvents' }
     )
   },
-  ['events-published-all'], // Cache key prefix
+  ['events-published-all-v2'], // Cache key prefix (v2: include keyName)
   {
     revalidate: 604800, // Cache for 7 days (revalidateTag handles on-demand invalidation)
     tags: ['events'], // Tag for revalidation
@@ -213,6 +215,30 @@ export const getEventTitleByKeyName = unstable_cache(
     tags: ['events'], // Tag for revalidation
   }
 )
+
+/**
+ * Resolve an event's keyName by id (used by Event Manager → Manage Event).
+ * Only admins, or hosts of that event, may resolve it.
+ */
+export async function getEventKeyNameById(
+  eventId: string
+): Promise<string | null> {
+  const { prisma } = await import('@/lib/db')
+  try {
+    if (!(await canAccessEventPaymentData(eventId))) {
+      return null
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { keyName: true },
+    })
+    return event?.keyName ?? null
+  } catch (error) {
+    console.error('Error getting event keyName by id:', error)
+    return null
+  }
+}
 
 export async function getEventsOfHost(
   userId: string,

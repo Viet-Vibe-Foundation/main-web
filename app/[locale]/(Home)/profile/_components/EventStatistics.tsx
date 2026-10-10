@@ -8,6 +8,7 @@ import { ArrowUpDown } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import {
   getAllPublishedEvents,
+  getEventKeyNameById,
   getEventsOfHost,
 } from '@/lib/actions/event/getEvent'
 import { getPublishedEventsForReviewsWithSearch } from '@/lib/actions/review/reviewActions'
@@ -44,6 +45,7 @@ interface EventStatisticsProps {
 interface Event {
   id: string
   title: string
+  keyName?: string
 }
 
 interface Payment {
@@ -546,7 +548,11 @@ export default function EventStatistics({
         : ticketParticipantEmails
 
   const selectedEventKeyName =
-    payments[0]?.event?.keyName || refundPayments[0]?.event?.keyName
+    events.find((e) => e.id === selectedEventId)?.keyName ||
+    filteredEvents.find((e) => e.id === selectedEventId)?.keyName ||
+    payments[0]?.event?.keyName ||
+    refundPayments[0]?.event?.keyName ||
+    ''
 
   const handleCopyEmails = async () => {
     if (participantEmails.length === 0) {
@@ -576,13 +582,28 @@ export default function EventStatistics({
     )
   }
 
-  const handleManageEvent = () => {
-    if (!selectedEventKeyName) {
+  const handleManageEvent = async () => {
+    if (!selectedEventId) {
+      toast.error('Please select an event first')
+      return
+    }
+
+    let keyName = selectedEventKeyName
+    if (!keyName) {
+      try {
+        keyName = (await getEventKeyNameById(selectedEventId)) || ''
+      } catch (error) {
+        console.error('Error resolving event keyName:', error)
+      }
+    }
+
+    if (!keyName) {
       toast.error('Event key name not found')
       return
     }
+
     router.push(
-      `/${locale}/profile?section=admin-edit-event&eventKeyName=${selectedEventKeyName}`
+      `/${locale}/profile?section=admin-edit-event&eventKeyName=${encodeURIComponent(keyName)}`
     )
   }
 
@@ -887,7 +908,9 @@ export default function EventStatistics({
                       variant="outline"
                     >
                       <FiEdit className="mr-2 h-4 w-4" />
-                      {activeTab === 'shopPayments' ? 'Manage Shop' : 'Manage Event'}
+                      {activeTab === 'shopPayments'
+                        ? t('manage-selected-shop')
+                        : t('edit-selected-event')}
                     </Button>
                   </div>
                 </div>

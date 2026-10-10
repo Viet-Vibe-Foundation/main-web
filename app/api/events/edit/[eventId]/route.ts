@@ -3,6 +3,7 @@ import { auth } from '@/auth'
 import { prisma } from '@/lib/db'
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { revalidateTag } from 'next/cache'
+import { canAccessEventPaymentData } from '@/lib/actions/payment/canAccessEventPaymentData'
 
 export const PUT = async (
   request: Request,
@@ -17,7 +18,12 @@ export const PUT = async (
     // Extract the data from the request
     const { isPublished, ...values } = await request.json()
     const { eventId } = await params
-    
+
+    // Hosts may only edit events they host (admins can edit any event)
+    if (!(await canAccessEventPaymentData(eventId))) {
+      return new NextResponse('Unauthorized', { status: 401 })
+    }
+
     console.log(isPublished)
     // Check if the event exists
     const eventExists = await prisma.event.findUnique({

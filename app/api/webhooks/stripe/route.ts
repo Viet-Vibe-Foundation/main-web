@@ -1,18 +1,55 @@
+// Framework and third-party libraries
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { prisma } from '@/lib/db'
-import { PaymentType } from '@prisma/client'
 import { revalidateTag } from 'next/cache'
+import { PaymentType } from '@prisma/client'
+import type { IssuedTicket } from '@prisma/client'
+
+// Database
+import { prisma } from '@/lib/db'
+
+// Server actions and utilities
 import { sendPaymentConfirmationEmail } from '@/lib/actions/email/sendPaymentConfirmationEmail'
 import { sendSubscriptionConfirmationEmail } from '@/lib/actions/email/sendSubscriptionConfirmationEmail'
 import { sendShopOrderConfirmationEmail, ShopOrderItem } from '@/lib/actions/email/sendShopOrderConfirmationEmail'
 import { getFinalTicketPrice } from '@/lib/actions/price/getPrices'
 import { buildPostPaymentFormLink } from '@/lib/utils/buildPostPaymentFormLink'
+import { issueTicketsForPayment } from '@/lib/actions/ticket/issueTickets'
+import { buildTicketQrAttachments } from '@/lib/actions/ticket/generateTicketQr'
+import { splitQrAttachments } from '@/lib/actions/ticket/splitQrAttachments'
 
+// Stripe client
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-04-30.basil',
 })
 
+/**
+ * Send one confirmation email, retrying transient provider failures.
+ * Throws the last error once all attempts are used.
+ */
+async function sendEmailWithRetry<T>(
+  send: () => Promise<T>,
+  attempts = 3
+): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await send()
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * attempt))
+      }
+    }
+  }
+  throw lastError
+}
+
+/**
+ * Read the request stream without parsing it.
+ *
+ * Stripe signature verification must receive the exact raw request bytes.
+ */
 async function getRawBody(
   readable: ReadableStream<Uint8Array>
 ): Promise<Buffer> {
@@ -28,6 +65,10 @@ async function getRawBody(
   return Buffer.concat(chunks)
 }
 
+/**
+ * Load the billing period and price associated with a subscription.
+ * Returns null when Stripe cannot provide the subscription.
+ */
 async function getSubscriptionDetails(subscriptionId: string) {
   try {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId)
@@ -43,6 +84,10 @@ async function getSubscriptionDetails(subscriptionId: string) {
   }
 }
 
+/**
+ * Persist checkout metadata on a subscription so renewal invoice webhooks have
+ * the user and purchase context required to update local records.
+ */
 async function updateSubscriptionMetadata(
   subscriptionId: string,
   metadata: Record<string, string>
@@ -58,6 +103,9 @@ async function updateSubscriptionMetadata(
   }
 }
 
+/**
+ * Return the first line-item quantity for a completed checkout session.
+ */
 async function getCheckoutSessionQuantity(sessionId: string) {
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
     expand: ['line_items'],
@@ -68,6 +116,13 @@ async function getCheckoutSessionQuantity(sessionId: string) {
   return session.line_items.data.map((item) => item.quantity)[0] ?? null
 }
 
+/**
+ * Resolve a stable payment identifier from a Stripe invoice.
+ *
+ * Stripe's Basil API can expose the payment intent through several invoice
+ * shapes, so this helper checks the expanded payment data and legacy fields
+ * before falling back to the invoice ID.
+ */
 async function getPaymentIntentFromInvoice(
   invoiceId: string
 ): Promise<string | null> {
@@ -221,6 +276,9 @@ async function getPaymentIntentFromInvoice(
   }
 }
 
+/**
+ * Resolve the payment identifier from a subscription's latest invoice.
+ */
 async function getPaymentIntentFromSubscription(
   subscriptionId: string
 ): Promise<string | null> {
@@ -262,7 +320,21 @@ async function getPaymentIntentFromSubscription(
   }
 }
 
+/**
+ * Receive Stripe webhook events and persist successful purchases.
+ *
+ * Processing order:
+ * 1. Verify the Stripe signature against the raw request body.
+ * 2. Normalize supported event types into common payment metadata.
+ * 3. Create shop, event-ticket, or membership payment records.
+ * 4. Issue event admission QR tickets and send confirmation emails.
+ * 5. Finalize checkout state and membership details.
+ *
+ * Non-critical email and QR generation failures are logged without rejecting
+ * an otherwise valid payment webhook.
+ */
 export async function POST(req: NextRequest) {
+  // Verify webhook authenticity before reading or processing event data.
   const signature = req.headers.get('stripe-signature')
 
   if (!signature) {
@@ -304,6 +376,7 @@ export async function POST(req: NextRequest) {
   console.log('event webhook received', event)
 
   if (successType.includes(event.type)) {
+    // Normalize supported event payloads into one payment representation.
     let paymentData:
       | Stripe.PaymentIntent
       | Stripe.Checkout.Session
@@ -396,12 +469,13 @@ export async function POST(req: NextRequest) {
     console.log('metadata', metadata)
     console.log('paymentData', paymentData)
 
-    // in case paymentId is not found, set it to an empty string, then admin can ask devs to fix it
+    // Preserve the payment record even when Stripe does not expose an ID.
+    // An empty value makes the missing identifier visible for later repair.
     if (!paymentId) {
       paymentId = ''
     }
 
-    // Get customer email from checkout session if available (for backward compatibility fallback)
+    // Keep the Stripe customer email as a fallback for legacy checkout data.
     let customerEmail: string | null = null
     if (event.type === 'checkout.session.completed') {
       const session = paymentData as Stripe.Checkout.Session
@@ -551,9 +625,56 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Stripe redelivers events (timeouts, retries after a non-2xx response)
+      // and can fire several success events for one payment. A payment that
+      // already exists for this Stripe payment ID means this is a repeat, so we
+      // must not create payments or QR tickets a second time.
+      const existingPayments = paymentId
+        ? await prisma.payment.findMany({
+            where: { stripePaymentId: paymentId, type: { not: 'Refund' } },
+            select: {
+              id: true,
+              type: true,
+              eventId: true,
+              _count: { select: { issuedTickets: true } },
+            },
+          })
+        : []
+      const existingEventPayments = existingPayments.filter(
+        (p) => p.eventId && p.type !== 'Membership' && p.type !== 'Shop'
+      )
+
+      if (existingPayments.length > 0) {
+        // Only reprocess when the earlier attempt left work unfinished:
+        // event payments still missing their QR tickets, or a membership whose
+        // user record may not have been updated yet.
+        const needsRecovery =
+          existingEventPayments.some((p) => p._count.issuedTickets === 0) ||
+          existingPayments.some((p) => p.type === 'Membership')
+
+        if (!needsRecovery) {
+          console.log(
+            '[WEBHOOK_DUPLICATE] Payment already processed, skipping',
+            paymentId
+          )
+          return NextResponse.json(
+            { received: true, duplicate: true },
+            { status: 200 }
+          )
+        }
+
+        console.warn(
+          '[WEBHOOK_RECOVERY] Reprocessing incomplete payment',
+          paymentId
+        )
+        // Reuse the payments from the earlier attempt; only the remaining
+        // steps (QR tickets, emails, membership update) run below.
+        createdEventPaymentIds.push(...existingEventPayments.map((p) => p.id))
+      }
+
       ////// FOR SHOP CHECKOUT //////
       // Also check metadata.shopId as a fallback for sessions created before `type` was added to metadata
-      if (metadata.type === 'Shop' || (!metadata.type && metadata.shopId)) {
+      else if (metadata.type === 'Shop' || (!metadata.type && metadata.shopId)) {
         metadata.type = 'Shop' // Ensure type is set for payment creation below
         const shopItemMetadata = checkoutSessionData?.shopItemMetadata
 
@@ -835,6 +956,44 @@ export async function POST(req: NextRequest) {
         createdEventPaymentIds.push(createdPayment.id)
       }
 
+      // Issue one scannable QR ticket per admission unit (skip membership / shop)
+      let issuedTicketsForEmail: IssuedTicket[] = []
+      if (
+        metadata.type !== 'Membership' &&
+        metadata.eventId &&
+        createdEventPaymentIds.length > 0
+      ) {
+        try {
+          const createdPayments = await prisma.payment.findMany({
+            where: { id: { in: createdEventPaymentIds } },
+            select: {
+              id: true,
+              eventId: true,
+              eventTicketId: true,
+              quantity: true,
+              seatNumber: true,
+            },
+          })
+          for (const payment of createdPayments) {
+            if (!payment.eventId) continue
+            const issued = await issueTicketsForPayment({
+              paymentId: payment.id,
+              eventId: payment.eventId,
+              eventTicketId: payment.eventTicketId,
+              quantity: payment.quantity,
+              seatNumber: payment.seatNumber,
+            })
+            issuedTicketsForEmail.push(...issued)
+          }
+        } catch (issueError) {
+          // Do not swallow: a paid customer without QR tickets must make the
+          // webhook fail so Stripe retries. The retry reuses the saved payment
+          // (see existingPayments above) and issues the missing tickets.
+          console.error('[ISSUED_TICKET_CREATE_ERROR]', issueError)
+          throw issueError
+        }
+      }
+
       // Send payment confirmation email
       // - For event tickets: detailed ticket email
       // - For memberships: generic membership confirmation email
@@ -868,6 +1027,8 @@ export async function POST(req: NextRequest) {
                       days: true,
                       startTime: true,
                       endTime: true,
+                      confirmationEmailSubject: true,
+                      confirmationEmailBody: true,
                     },
                   },
                 },
@@ -908,6 +1069,9 @@ export async function POST(req: NextRequest) {
                   eventLocation: firstTicket.event.location,
                   eventStartTime: firstTicket.event.startTime,
                   eventEndTime: firstTicket.event.endTime,
+                  customSubject: firstTicket.event.confirmationEmailSubject,
+                  customBody: firstTicket.event.confirmationEmailBody,
+                  guestName: user.name || guestName || undefined,
                 }
                 const primaryEmail = user.email.trim()
                 const payerUserId =
@@ -928,6 +1092,8 @@ export async function POST(req: NextRequest) {
                   to: string
                   firstName: string
                   formLink?: string
+                  /** Index of the QR ticket reserved for this guest (purchaser: none) */
+                  ticketSlot?: number
                 }[] = [
                   {
                     to: primaryEmail,
@@ -937,7 +1103,7 @@ export async function POST(req: NextRequest) {
                 
                 // Add other guests to recipients
                 if (otherGuestsInfo?.length) {
-                  for (const g of otherGuestsInfo) {
+                  for (const [guestIndex, g] of otherGuestsInfo.entries()) {
                     const email = g.email?.trim()
                     if (!email) continue
                     if (email.toLowerCase() === primaryEmail.toLowerCase()) continue
@@ -957,6 +1123,8 @@ export async function POST(req: NextRequest) {
                       to: email,
                       firstName: g.name?.split(' ')[0] || 'Valued Customer',
                       formLink,
+                      // Ticket 0 is the purchaser's; guest N gets ticket N
+                      ticketSlot: guestIndex + 1,
                     })
                   }
                 }
@@ -967,16 +1135,49 @@ export async function POST(req: NextRequest) {
                   seenEmails.add(key)
                   return true
                 })
-                await Promise.all(
+                const qrAttachments =
+                  issuedTicketsForEmail.length > 0
+                    ? await buildTicketQrAttachments(
+                        issuedTicketsForEmail,
+                        tickets.map((t) => t.type).join(', ')
+                      )
+                    : []
+                // Each guest gets only their own QR; the purchaser keeps their
+                // own plus any ticket not claimed by an emailed guest.
+                const guestRecipients = uniqueRecipients.filter(
+                  (r) => r.ticketSlot !== undefined
+                )
+                const qrSplit = splitQrAttachments(
+                  qrAttachments,
+                  guestRecipients.map((r) => r.ticketSlot as number)
+                )
+                const qrByRecipient = new Map(
+                  guestRecipients.map((r, i) => [r.to, qrSplit.guests[i]])
+                )
+                const sendResults = await Promise.allSettled(
                   uniqueRecipients.map((r) =>
-                    sendPaymentConfirmationEmail({
-                      ...paymentConfirmationPayload,
-                      firstName: r.firstName,
-                      to: r.to,
-                      formLink: r.formLink,
-                    })
+                    sendEmailWithRetry(() =>
+                      sendPaymentConfirmationEmail({
+                        ...paymentConfirmationPayload,
+                        firstName: r.firstName,
+                        to: r.to,
+                        formLink: r.formLink,
+                        qrAttachments:
+                          r.ticketSlot === undefined
+                            ? qrSplit.purchaser
+                            : (qrByRecipient.get(r.to) ?? []),
+                      })
+                    )
                   )
                 )
+                const failedSends = sendResults.filter(
+                  (result) => result.status === 'rejected'
+                )
+                if (failedSends.length > 0) {
+                  throw new Error(
+                    `${failedSends.length} ticket confirmation email(s) failed after retries`
+                  )
+                }
               }
             }
 
@@ -1107,6 +1308,8 @@ export async function POST(req: NextRequest) {
                       days: true,
                       startTime: true,
                       endTime: true,
+                      confirmationEmailSubject: true,
+                      confirmationEmailBody: true,
                     },
                   },
                 },
@@ -1148,6 +1351,9 @@ export async function POST(req: NextRequest) {
                   eventLocation: ticket.event.location,
                   eventStartTime: ticket.event.startTime,
                   eventEndTime: ticket.event.endTime,
+                  customSubject: ticket.event.confirmationEmailSubject,
+                  customBody: ticket.event.confirmationEmailBody,
+                  guestName: user.name || guestName || undefined,
                 }
                 const primaryEmailSingle = user.email.trim()
                 const payerUserIdSingle =
@@ -1166,6 +1372,8 @@ export async function POST(req: NextRequest) {
                   to: string
                   firstName: string
                   formLink?: string
+                  /** Index of the QR ticket reserved for this guest (purchaser: none) */
+                  ticketSlot?: number
                 }[] = [
                   {
                     to: primaryEmailSingle,
@@ -1173,7 +1381,7 @@ export async function POST(req: NextRequest) {
                   },
                 ]
                 if (otherGuestsInfo?.length) {
-                  for (const g of otherGuestsInfo) {
+                  for (const [guestIndex, g] of otherGuestsInfo.entries()) {
                     const email = g.email?.trim()
                     if (!email) continue
                     if (email.toLowerCase() === primaryEmailSingle.toLowerCase())
@@ -1194,6 +1402,8 @@ export async function POST(req: NextRequest) {
                       to: email,
                       firstName: g.name?.split(' ')[0] || 'Valued Customer',
                       formLink,
+                      // Ticket 0 is the purchaser's; guest N gets ticket N
+                      ticketSlot: guestIndex + 1,
                     })
                   }
                 }
@@ -1206,16 +1416,52 @@ export async function POST(req: NextRequest) {
                     return true
                   }
                 )
-                await Promise.all(
+                const singleQrAttachments =
+                  issuedTicketsForEmail.length > 0
+                    ? await buildTicketQrAttachments(
+                        issuedTicketsForEmail,
+                        ticket.type
+                      )
+                    : []
+                // Each guest gets only their own QR; the purchaser keeps their
+                // own plus any ticket not claimed by an emailed guest.
+                const singleGuestRecipients = uniqueSingleRecipients.filter(
+                  (r) => r.ticketSlot !== undefined
+                )
+                const singleQrSplit = splitQrAttachments(
+                  singleQrAttachments,
+                  singleGuestRecipients.map((r) => r.ticketSlot as number)
+                )
+                const singleQrByRecipient = new Map(
+                  singleGuestRecipients.map((r, i) => [
+                    r.to,
+                    singleQrSplit.guests[i],
+                  ])
+                )
+                const singleSendResults = await Promise.allSettled(
                   uniqueSingleRecipients.map((r) =>
-                    sendPaymentConfirmationEmail({
-                      ...singleTicketPayload,
-                      firstName: r.firstName,
-                      to: r.to,
-                      formLink: r.formLink,
-                    })
+                    sendEmailWithRetry(() =>
+                      sendPaymentConfirmationEmail({
+                        ...singleTicketPayload,
+                        firstName: r.firstName,
+                        to: r.to,
+                        formLink: r.formLink,
+                        qrAttachments:
+                          r.ticketSlot === undefined
+                            ? singleQrSplit.purchaser
+                            : (singleQrByRecipient.get(r.to) ?? []),
+                      })
+                    )
                   )
                 )
+                const failedSingleSends = singleSendResults.filter(
+                  (result) => result.status === 'rejected'
+                )
+                if (failedSingleSends.length > 0) {
+                  throw new Error(
+                    `${failedSingleSends.length} ticket confirmation email(s) failed after retries`
+                  )
+                }
               }
             }
           }
@@ -1240,11 +1486,10 @@ export async function POST(req: NextRequest) {
       }
       
       
-      // Update event ticket sold count
-      // Revalidate payment cache after creating new payment
+      // Refresh cached payment queries after persistence succeeds.
       revalidateTag('payments')
 
-      // Update CheckoutSessionData status to COMPLETED
+      // Mark durable checkout data as consumed.
       if (metadata?.checkoutDataId) {
         try {
           await prisma.checkoutSessionData.update({
@@ -1257,7 +1502,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // add role member to user
+      // Activate membership details after a successful membership payment.
       if (metadata.type === 'Membership') {
         await prisma.user.update({
           where: { id: metadata.userId },
@@ -1268,7 +1513,7 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        // update subscription metadata for future subscription invoices
+        // Preserve metadata for future subscription renewal invoices.
         if (subscriptionId) {
           await updateSubscriptionMetadata(subscriptionId, metadata)
         }

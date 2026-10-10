@@ -1,6 +1,8 @@
+'use client'
+
 // Libraries
 import * as React from 'react'
-import { headers } from 'next/headers'
+import { usePathname } from 'next/navigation'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { Slot } from '@radix-ui/react-slot'
 import { cn } from '@/lib/utils'
@@ -45,10 +47,9 @@ const eventType = ['concert', 'class', 'camping', 'event']
 
 // Main Component
 const BackButton = React.forwardRef<HTMLButtonElement, BackButtonProps>(
-  async ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const header = await headers()
-    const currentPath = header.get('current-path')
-    let parentPath = currentPath?.split('/').slice(0, -1).join('/') || '/'
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const currentPath = usePathname() || '/'
+    let parentPath = currentPath.split('/').slice(0, -1).join('/') || '/'
 
     if (parentPath.split('/').at(-1) === 'editPost') {
       // For Edit Post Page, the flow is from allPosts to editPost
