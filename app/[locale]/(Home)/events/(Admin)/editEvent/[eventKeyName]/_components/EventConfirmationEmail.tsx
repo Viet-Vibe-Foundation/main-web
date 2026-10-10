@@ -79,10 +79,29 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
     },
   })
 
+  // The subject is plain text, so HTML-only fields are body-only.
+  const placeholdersForTarget = useCallback(
+    (target: InsertTarget) =>
+      target === 'subject'
+        ? CONFIRMATION_EMAIL_PLACEHOLDERS.filter(
+            (p) => p.key !== 'qrCodes' && p.key !== 'formLink'
+          )
+        : CONFIRMATION_EMAIL_PLACEHOLDERS,
+    []
+  )
+
+  const insertablePlaceholders = useMemo(
+    () => placeholdersForTarget(insertTarget),
+    [insertTarget, placeholdersForTarget]
+  )
+
   const suggestionItems = useMemo(() => {
     if (!suggestion) return []
-    return filterPlaceholders(suggestion.query)
-  }, [suggestion])
+    return filterPlaceholders(
+      suggestion.query,
+      placeholdersForTarget(suggestion.target)
+    )
+  }, [suggestion, placeholdersForTarget])
 
   const applyTokenAtRange = useCallback(
     (
@@ -408,7 +427,7 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                       <SelectValue placeholder="Choose a field to insert…" />
                     </SelectTrigger>
                     <SelectContent>
-                      {CONFIRMATION_EMAIL_PLACEHOLDERS.map((placeholder) => (
+                      {insertablePlaceholders.map((placeholder) => (
                         <SelectItem key={placeholder.key} value={placeholder.key}>
                           {placeholder.label} — {placeholder.token}
                         </SelectItem>
@@ -446,7 +465,7 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                 <span className="flex w-full items-center gap-1 text-xs text-muted-foreground">
                   Quick insert <ChevronDown className="h-3 w-3" />
                 </span>
-                {CONFIRMATION_EMAIL_PLACEHOLDERS.map((placeholder) => (
+                {insertablePlaceholders.map((placeholder) => (
                   <Button
                     key={placeholder.key}
                     type="button"

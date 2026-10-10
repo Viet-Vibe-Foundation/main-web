@@ -344,6 +344,19 @@ export default async function ProfilePage({
           )
         }
 
+        // Hosts may only edit events they host
+        if (
+          !isSuperAdmin &&
+          !isAdmin &&
+          !event.hosts.some((host) => host.id === user.id)
+        ) {
+          return (
+            <p className="mt-10 text-center">
+              You do not have permission to view this page.
+            </p>
+          )
+        }
+
         return (
           <EditEvent
             event={event}

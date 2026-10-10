@@ -5,6 +5,7 @@ import type { TicketQrAttachment } from '@/lib/actions/ticket/generateTicketQr'
 import {
   buildConfirmationEmailValues,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  renderConfirmationEmailSubject,
   renderConfirmationEmailTemplate,
   wrapConfirmationEmailHtml,
 } from '@/lib/actions/email/confirmationEmailTemplate'
@@ -547,7 +548,9 @@ export async function sendPaymentConfirmationEmail({
 
       const subjectTemplate =
         customSubject?.trim() || DEFAULT_CONFIRMATION_EMAIL_SUBJECT
-      const subject = renderConfirmationEmailTemplate(subjectTemplate, values)
+      const subject =
+        renderConfirmationEmailSubject(subjectTemplate, values) ||
+        DEFAULT_CONFIRMATION_EMAIL_SUBJECT
       const bodyHtml = wrapConfirmationEmailHtml(
         renderConfirmationEmailTemplate(trimmedCustomBody, values)
       )
@@ -571,7 +574,7 @@ export async function sendPaymentConfirmationEmail({
       from: 'VVF Admin <admin.tech@vietvibe.org>',
       to: to,
       subject: customSubject?.trim()
-        ? renderConfirmationEmailTemplate(
+        ? renderConfirmationEmailSubject(
             customSubject.trim(),
             buildConfirmationEmailValues({
               firstName,

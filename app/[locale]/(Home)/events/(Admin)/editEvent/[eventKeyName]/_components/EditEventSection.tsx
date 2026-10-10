@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +27,11 @@ export default function EditEventSection({
   children,
   description,
 }: EditEventSectionProps) {
+  const [hasBeenOpened, setHasBeenOpened] = useState(isOpen)
+  if (isOpen && !hasBeenOpened) {
+    setHasBeenOpened(true)
+  }
+
   return (
     <section
       id={`edit-event-${meta.id}`}
@@ -70,8 +76,16 @@ export default function EditEventSection({
         />
       </button>
 
-      {isOpen && (
-        <div className="space-y-4 border-t border-slate-100 px-4 py-5 md:px-5">
+      {/* Mount on first open, then stay mounted when collapsed so unsaved
+          form edits are not lost. */}
+      {hasBeenOpened && (
+        <div
+          hidden={!isOpen}
+          className={cn(
+            'space-y-4 border-t border-slate-100 px-4 py-5 md:px-5',
+            !isOpen && 'hidden'
+          )}
+        >
           {description}
           {children}
         </div>

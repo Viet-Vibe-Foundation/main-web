@@ -189,6 +189,32 @@ export function renderConfirmationEmailTemplate(
   })
 }
 
+/** Placeholders whose values are HTML and so cannot appear in a subject. */
+const HTML_ONLY_PLACEHOLDERS: ConfirmationEmailPlaceholderKey[] = [
+  'qrCodes',
+  'formLink',
+]
+
+/**
+ * Render a subject line as plain text: values are inserted as-is (no HTML
+ * escaping), HTML-only placeholders are dropped, and line breaks are removed
+ * because email subjects must be a single line.
+ */
+export function renderConfirmationEmailSubject(
+  template: string,
+  values: ConfirmationEmailValues
+): string {
+  return template
+    .replace(PLACEHOLDER_REGEX, (_match, rawKey: string) => {
+      const key = rawKey as ConfirmationEmailPlaceholderKey
+      if (HTML_ONLY_PLACEHOLDERS.includes(key)) return ''
+      return values[key] ?? ''
+    })
+    .replace(/[\r\n]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 export function wrapConfirmationEmailHtml(bodyHtml: string): string {
   return `<!DOCTYPE html>
 <html>

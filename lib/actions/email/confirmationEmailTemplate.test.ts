@@ -4,6 +4,7 @@ import {
   buildQrCodesHtml,
   filterPlaceholders,
   getOpenPlaceholderQuery,
+  renderConfirmationEmailSubject,
   renderConfirmationEmailTemplate,
 } from './confirmationEmailTemplate'
 
@@ -35,6 +36,19 @@ describe('confirmationEmailTemplate', () => {
     })
     expect(rendered).toContain('data:image/png;base64,abc123')
     expect(rendered).toContain('Ticket #1')
+  })
+
+  test('subject renders plain text without HTML escaping or HTML-only fields', () => {
+    const subject = renderConfirmationEmailSubject(
+      'Tickets for <<eventTitle>> <<qrCodes>><<formLink>>\n<<firstName>>',
+      {
+        eventTitle: 'Rock & Roll',
+        firstName: 'Ada',
+        qrCodes: '<div>data:image/png;base64,abc</div>',
+        formLink: '<a href="https://x">x</a>',
+      }
+    )
+    expect(subject).toBe('Tickets for Rock & Roll Ada')
   })
 
   test('buildConfirmationEmailValues formats money and dates', () => {

@@ -1,10 +1,5 @@
 import type { NextConfig } from 'next'
 import { withBotId } from 'botid/next/config'
-import { execSync } from 'child_process'
-import { readFileSync } from 'fs'
-import { join } from 'path'
-
-const projectRoot = process.cwd()
 
 const cspHeader = `
   default-src 'self';
@@ -23,47 +18,7 @@ const cspHeader = `
   .replace(/\s{2,}/g, ' ')
   .trim()
 
-function safeGit(command: string): string {
-  try {
-    return execSync(command, { stdio: ['ignore', 'pipe', 'ignore'] })
-      .toString()
-      .trim()
-  } catch {
-    return ''
-  }
-}
-
-function readPackageVersion(): string {
-  try {
-    const pkg = JSON.parse(
-      readFileSync(join(projectRoot, 'package.json'), 'utf8')
-    ) as { version?: string }
-    return pkg.version || '0.0.0'
-  } catch {
-    return '0.0.0'
-  }
-}
-
-const appVersion = process.env.APP_VERSION || readPackageVersion()
-const appGitBranch =
-  process.env.APP_GIT_BRANCH ||
-  process.env.VERCEL_GIT_COMMIT_REF ||
-  safeGit('git rev-parse --abbrev-ref HEAD') ||
-  'unknown'
-const appGitCommit =
-  process.env.APP_GIT_COMMIT ||
-  process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ||
-  safeGit('git rev-parse --short HEAD') ||
-  'unknown'
-const appBuildDate = process.env.APP_BUILD_DATE || new Date().toISOString()
-
 const nextConfig: NextConfig = {
-  env: {
-    APP_VERSION: appVersion,
-    APP_GIT_BRANCH: appGitBranch,
-    APP_GIT_COMMIT: appGitCommit,
-    APP_BUILD_DATE: appBuildDate,
-  },
   async headers() {
     return [
       {

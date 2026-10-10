@@ -44,11 +44,9 @@ describe('issueTickets', () => {
 
   test('issueTicketsForPayment creates one ticket per quantity', async () => {
     mockCreateMany.mockResolvedValue({ count: 3 })
-    mockFindMany.mockResolvedValue([
-      { id: '1' },
-      { id: '2' },
-      { id: '3' },
-    ] as never)
+    mockFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: '1' }, { id: '2' }, { id: '3' }] as never)
 
     const result = await issueTicketsForPayment({
       paymentId: 'pay_1',
@@ -73,7 +71,9 @@ describe('issueTickets', () => {
 
   test('issueTicketsForPayment creates one ticket per seat label', async () => {
     mockCreateMany.mockResolvedValue({ count: 2 })
-    mockFindMany.mockResolvedValue([{ id: '1' }, { id: '2' }] as never)
+    mockFindMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: '1' }, { id: '2' }] as never)
 
     await issueTicketsForPayment({
       paymentId: 'pay_2',
@@ -90,5 +90,39 @@ describe('issueTickets', () => {
     expect(data).toHaveLength(2)
     expect(data[0]?.seatLabel).toBe('A1')
     expect(data[1]?.seatLabel).toBe('A2')
+  })
+
+  test('issueTicketsForPayment reuses existing tickets instead of duplicating', async () => {
+    const existing = [{ id: '1' }, { id: '2' }] as never
+    mockFindMany.mockResolvedValue(existing)
+
+    const result = await issueTicketsForPayment({
+      paymentId: 'pay_3',
+      eventId: 'evt_1',
+      quantity: 2,
+    })
+
+    expect(mockCreateMany).not.toHaveBeenCalled()
+    expect(result).toBe(existing)
+  })
+
+  test('issueTicketsForPayment only creates the missing tickets', async () => {
+    mockCreateMany.mockResolvedValue({ count: 1 })
+    mockFindMany
+      .mockResolvedValueOnce([{ id: '1' }] as never)
+      .mockResolvedValueOnce([{ id: '1' }, { id: '2' }] as never)
+
+    await issueTicketsForPayment({
+      paymentId: 'pay_4',
+      eventId: 'evt_1',
+      quantity: 1,
+      seatNumber: 'B1, B2',
+    })
+
+    const data = mockCreateMany.mock.calls[0]?.[0]!.data as Array<{
+      seatLabel: string | null
+    }>
+    expect(data).toHaveLength(1)
+    expect(data[0]?.seatLabel).toBe('B2')
   })
 })
