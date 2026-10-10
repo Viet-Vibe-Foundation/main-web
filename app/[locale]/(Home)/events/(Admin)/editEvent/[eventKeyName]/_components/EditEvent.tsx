@@ -35,6 +35,7 @@ import DeleteEventButton from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[e
 import EventSeating from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventSeating'
 import EventForm from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventForm'
 import EventConfirmationEmail from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventConfirmationEmail'
+import EventVoteTool from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventVoteTool'
 import EditEventSection, {
   type EditEventSectionMeta,
 } from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EditEventSection'
@@ -188,6 +189,12 @@ export default function EditEvent({
         id: 'confirmation-email',
         step: 'XXIII',
         label: 'Ticket Confirmation Email',
+        optional: true,
+      },
+      {
+        id: 'vote-tool',
+        step: 'XXIV',
+        label: 'Voting Tool',
         optional: true,
       },
     ],
@@ -580,6 +587,21 @@ export default function EditEvent({
               }
             >
               <EventConfirmationEmail event={event} />
+            </EditEventSection>
+
+            <EditEventSection
+              meta={sections[23]!}
+              isOpen={isOpen('vote-tool')}
+              onToggle={() => toggleSection('vote-tool')}
+              description={
+                <p className="text-sm text-muted-foreground">
+                  Special tool: add a public vote on the event page. Visitors can
+                  vote once per device / account, optionally change their vote,
+                  and results are shown publicly.
+                </p>
+              }
+            >
+              <EventVoteTool event={event} />
             </EditEventSection>
           </div>
         </div>

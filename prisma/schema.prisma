@@ -66,6 +66,7 @@ model Event {
   issuedTickets      IssuedTicket[]
   Review             Review[]
   form               EventForm[]
+  vote               EventVote?
   jobs               Job[]
   shops              Shop[]
   categories         EventCategory[] @relation("EventToEventCategory")
@@ -193,6 +194,7 @@ model User {
   payments             Payment[]     @relation("PaymentUser")
   monitoredPayments    Payment[]     @relation("PaymentMonitorUser")
   checkedInTickets     IssuedTicket[] @relation("TicketCheckedInBy")
+  voteBallots          EventVoteBallot[]
   posts                Post[]
   likedPosts           PostLikes[]
   visitedPosts         PostVisits[]
@@ -201,6 +203,68 @@ model User {
   EventHost            Event[]       @relation("EventToUser")
   Shops                Shop[]
   receipts             Receipt[]
+}
+
+/// Optional special tool: public vote/poll for an event (one poll per event).
+model EventVote {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  eventId         String   @unique
+  question        String
+  description     String?
+  isEnabled       Boolean  @default(false)
+  /// When true, a voter may change their previous choice
+  allowChangeVote Boolean  @default(true)
+  /// Voting window (results remain public/realtime even outside this window)
+  votingStartsAt  DateTime?
+  votingEndsAt    DateTime?
+
+  event           Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  options         EventVoteOption[]
+  ballots         EventVoteBallot[]
+}
+
+model EventVoteOption {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  voteId    String
+  label     String
+  position  Int      @default(0)
+
+  vote      EventVote         @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  ballots   EventVoteBallot[]
+
+  @@index([voteId])
+}
+
+model EventVoteBallot {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  voteId      String
+  optionId    String
+  /// Cookie / local device token — one ballot per device per poll
+  deviceToken String
+  /// Set when the voter is logged in
+  userId      String?
+  /// Email snapshot for logged-in voters (displayed masked publicly)
+  voterEmail  String?
+  /// Required when voting as a guest nickname
+  nickname    String?
+
+  vote        EventVote       @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  option      EventVoteOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([voteId, deviceToken])
+  @@index([voteId])
+  @@index([optionId])
+  @@index([userId])
 }
 
 model UserDevice {

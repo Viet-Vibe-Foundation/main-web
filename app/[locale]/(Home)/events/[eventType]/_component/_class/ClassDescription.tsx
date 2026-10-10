@@ -12,6 +12,7 @@ import PaymentOptions from '../_stripepayment/PaymentOptions'
 import SponsorsList from '../../../_components/SponsorsList'
 import ServerError from '@/components/error/ServerError'
 import VolunteerSection from './VolunteerSection'
+import EventVotingPanel from '../EventVotingPanel'
 
 // Interfaces & Types
 import {
@@ -278,6 +279,15 @@ const ClassDescription = async ({
               )}
             </div>
           </div>
+        </div>
+
+        <div className="mt-6 w-full">
+          <EventVotingPanel
+            eventId={classId}
+            locale={locale}
+            isLoggedIn={Boolean(author)}
+            userEmail={session?.user?.email}
+          />
         </div>
 
         {/* Sponsors */}
