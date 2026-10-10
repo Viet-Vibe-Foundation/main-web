@@ -31,7 +31,8 @@ describe('generateTicketQr', () => {
     expect(attachments[1].contentBase64.startsWith('iVBOR')).toBe(true)
 
     const resendAttachments = toResendInlineQrAttachments(attachments)
-    expect(resendAttachments[0].contentId).toBe('ticket-qr-a')
-    expect(resendAttachments[0].content).toBeInstanceOf(Buffer)
+    expect(resendAttachments[0].content_id).toBe('ticket-qr-a')
+    expect(typeof resendAttachments[0].content).toBe('string')
+    expect(resendAttachments[0].content.startsWith('iVBOR')).toBe(true)
   })
 })

@@ -51,12 +51,16 @@ export async function buildTicketQrAttachments(
   return attachments
 }
 
-/** Resend inline PNG attachments (HTML must reference the same contentId via cid:). */
+/**
+ * Resend inline PNG attachments. HTML must use src="cid:{contentId}".
+ * Uses snake_case fields — resend@4.x forwards attachments to the API as-is
+ * (no camelCase mapping), so content_id is required for CID embedding.
+ */
 export function toResendInlineQrAttachments(attachments: TicketQrAttachment[]) {
   return attachments.map((qr) => ({
     filename: qr.filename,
-    content: Buffer.from(qr.contentBase64, 'base64'),
-    contentType: 'image/png',
-    contentId: qr.contentId,
+    content: qr.contentBase64,
+    content_type: 'image/png',
+    content_id: qr.contentId,
   }))
 }
