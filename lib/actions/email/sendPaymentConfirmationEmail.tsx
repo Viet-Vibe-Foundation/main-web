@@ -9,6 +9,7 @@ import type { TicketQrInlineImage } from '@/lib/actions/email/confirmationEmailT
 import {
   buildConfirmationEmailValues,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  appendReferralInviteHtml,
   renderConfirmationEmailSubject,
   renderConfirmationEmailTemplate,
   wrapConfirmationEmailHtml,
@@ -33,6 +34,8 @@ interface EmailTemplatePaymentConfirmationProps {
   eventEndTime?: string | null
   formLink?: string | null
   qrCodes?: TicketQrInlineImage[]
+  referralCode?: string | null
+  referralLink?: string | null
 }
 
 interface SendPaymentConfirmationEmailProps {
@@ -54,6 +57,8 @@ interface SendPaymentConfirmationEmailProps {
   eventEndTime?: string | null
   formLink?: string | null
   qrAttachments?: TicketQrAttachment[]
+  referralCode?: string | null
+  referralLink?: string | null
   /** Staff-customized subject with <<placeholders>>; falls back to default */
   customSubject?: string | null
   /** Staff-customized body with <<placeholders>>; falls back to default React template */
@@ -80,6 +85,8 @@ const EmailTemplatePaymentConfirmation = ({
   eventEndTime,
   formLink,
   qrCodes = [],
+  referralCode,
+  referralLink,
 }: EmailTemplatePaymentConfirmationProps) => {
   const currencyLabel = currency.toUpperCase()
   const formattedPrice = pricePaid.toFixed(2)
@@ -481,6 +488,60 @@ const EmailTemplatePaymentConfirmation = ({
           </div>
         )}
 
+        {referralCode && referralLink && (
+          <div
+            style={{
+              marginTop: '24px',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid #fecdd3',
+              backgroundColor: '#fff1f2',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '16px',
+                fontWeight: 'bold',
+                color: '#9f1239',
+                margin: '0 0 8px 0',
+              }}
+            >
+              Invite Your Friends
+            </p>
+            <p style={{ fontSize: '14px', color: '#374151', margin: '0 0 12px 0' }}>
+              Share your personal link. Friends who buy a ticket with it join
+              your group on the leaderboard.
+            </p>
+            <p style={{ fontSize: '14px', color: '#111827', margin: '0 0 12px 0' }}>
+              <strong>Your code:</strong> {referralCode}
+            </p>
+            <a
+              href={referralLink}
+              style={{
+                display: 'inline-block',
+                padding: '10px 18px',
+                backgroundColor: '#be123c',
+                color: '#ffffff',
+                textDecoration: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+              }}
+            >
+              Invite Your Friends
+            </a>
+            <p
+              style={{
+                fontSize: '12px',
+                color: '#6b7280',
+                margin: '12px 0 0 0',
+                wordBreak: 'break-all',
+              }}
+            >
+              {referralLink}
+            </p>
+          </div>
+        )}
+
         <p style={{ fontSize: '14px', color: '#6b7280', marginTop: '20px' }}>
           If you have any questions, please contact us at{' '}
           <a href="mailto:tech@vietvibe.org" style={{ color: '#2563eb' }}>
@@ -515,6 +576,8 @@ export async function sendPaymentConfirmationEmail({
   customSubject,
   customBody,
   guestName,
+  referralCode,
+  referralLink,
 }: SendPaymentConfirmationEmailProps) {
   const resend = new Resend(process.env.RESEND_API_KEY_PRODUCTION)
 
@@ -544,6 +607,8 @@ export async function sendPaymentConfirmationEmail({
           contentId,
           label,
         })),
+        referralCode,
+        referralLink,
       })
 
       const subjectTemplate =
@@ -552,7 +617,11 @@ export async function sendPaymentConfirmationEmail({
         renderConfirmationEmailSubject(subjectTemplate, values) ||
         DEFAULT_CONFIRMATION_EMAIL_SUBJECT
       const bodyHtml = wrapConfirmationEmailHtml(
-        renderConfirmationEmailTemplate(trimmedCustomBody, values)
+        appendReferralInviteHtml(
+          renderConfirmationEmailTemplate(trimmedCustomBody, values),
+          referralCode,
+          referralLink
+        )
       )
 
       const result = await resend.emails.send({
@@ -591,6 +660,8 @@ export async function sendPaymentConfirmationEmail({
               eventStartTime,
               eventEndTime,
               formLink,
+              referralCode,
+              referralLink,
             })
           )
         : DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
@@ -615,6 +686,8 @@ export async function sendPaymentConfirmationEmail({
           contentId,
           label,
         })),
+        referralCode,
+        referralLink,
       }),
       attachments,
     })

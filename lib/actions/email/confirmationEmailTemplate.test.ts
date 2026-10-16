@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  appendReferralInviteHtml,
   buildConfirmationEmailValues,
   buildQrCodesHtml,
   filterPlaceholders,
@@ -66,6 +67,15 @@ describe('confirmationEmailTemplate', () => {
     expect(values.quantity).toBe('3')
     expect(values.formLink).toContain('https://vietvibe.org/form')
     expect(values.eventStartDate).toContain('2026')
+  })
+
+  test('appends an invite block when the template omits the referral code', () => {
+    const html = appendReferralInviteHtml('<p>Thanks</p>', 'AB12CD34', 'https://www.vietvibe.org/en/events/concert/friday?ref=AB12CD34')
+    expect(html).toContain('Invite Your Friends')
+    expect(html).toContain('AB12CD34')
+    expect(html).toContain('ref=AB12CD34')
+    const once = appendReferralInviteHtml(html, 'AB12CD34', 'https://www.vietvibe.org/en/events/concert/friday?ref=AB12CD34')
+    expect(once).toBe(html)
   })
 
   test('getOpenPlaceholderQuery detects unfinished <<token at cursor', () => {

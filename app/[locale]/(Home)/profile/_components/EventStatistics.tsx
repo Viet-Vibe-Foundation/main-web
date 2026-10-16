@@ -25,6 +25,7 @@ import { getEventPayments } from '../../../../../lib/actions/payment/getEventPay
 import { getEventShopPayments } from '../../../../../lib/actions/payment/getEventShopPayments'
 import { getEventRefundPayments } from '../../../../../lib/actions/payment/getEventRefundPayments'
 import PaymentNoteButton from '@/components/payment/PaymentNoteButton'
+import ReferralStatsPanel from './ReferralStatsPanel'
 import { PaymentMethod, PaymentType } from '@prisma/client'
 import AddPaymentButton from './AddEventPaymentButton'
 import ExportToExcelButton from '@/components/button/ExportToExcelButton'
@@ -427,7 +428,7 @@ export default function EventStatistics({
     order: 'asc' | 'desc' | null
   }>({ column: null, order: null })
   const [expandedPayments, setExpandedPayments] = useState<Record<string, boolean>>({})
-  const [activeTab, setActiveTab] = useState<'tickets' | 'shopPayments' | 'answers' | 'refund'>('tickets')
+  const [activeTab, setActiveTab] = useState<'tickets' | 'shopPayments' | 'answers' | 'refund' | 'referrals'>('tickets')
 
   // Initialize from URL params if present
   useEffect(() => {
@@ -764,6 +765,15 @@ export default function EventStatistics({
                       }`}
                   >
                     Tickets
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('referrals')}
+                    className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-medium transition-colors ${activeTab === 'referrals'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                      }`}
+                  >
+                    Referrals
                   </button>
                   <button
                     onClick={() => setActiveTab('answers')}
@@ -1415,6 +1425,8 @@ export default function EventStatistics({
                       </div>
                     )}
                   </>
+                ) : activeTab === 'referrals' ? (
+                  <ReferralStatsPanel eventId={selectedEventId} />
                 ) : (
                   // Answers Tab
                   <div className="rounded-lg border bg-white shadow-sm">

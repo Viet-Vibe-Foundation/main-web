@@ -36,6 +36,8 @@ import EventSeating from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventK
 import EventForm from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventForm'
 import EventConfirmationEmail from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventConfirmationEmail'
 import EventVoteTool from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventVoteTool'
+import EventPrizes from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventPrizes'
+import EventGroupChallenge from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EventGroupChallenge'
 import EditEventSection, {
   type EditEventSectionMeta,
 } from '@/app/[locale]/(Home)/events/(Admin)/editEvent/[eventKeyName]/_components/EditEventSection'
@@ -195,6 +197,18 @@ export default function EditEvent({
         id: 'vote-tool',
         step: 'XXIV',
         label: 'Voting Tool',
+        optional: true,
+      },
+      {
+        id: 'sponsor-prizes',
+        step: 'XXV',
+        label: 'Sponsor Prizes',
+        optional: true,
+      },
+      {
+        id: 'group-challenge',
+        step: 'XXVI',
+        label: 'Group Challenge',
         optional: true,
       },
     ],
@@ -581,8 +595,10 @@ export default function EditEvent({
                   Customize the email guests receive after purchasing a ticket.
                   Insert auto-filled fields with tokens like{' '}
                   <code>&lt;&lt;firstName&gt;&gt;</code>,{' '}
-                  <code>&lt;&lt;ticketType&gt;&gt;</code>, or{' '}
+                  <code>&lt;&lt;ticketType&gt;&gt;</code>,{' '}
+                  <code>&lt;&lt;referralCode&gt;&gt;</code>, or{' '}
                   <code>&lt;&lt;qrCodes&gt;&gt;</code>.
+                  Each buyer also receives their invite code in this email.
                 </p>
               }
             >
@@ -602,6 +618,34 @@ export default function EditEvent({
               }
             >
               <EventVoteTool event={event} />
+            </EditEventSection>
+
+            <EditEventSection
+              meta={sections[24]!}
+              isOpen={isOpen('sponsor-prizes')}
+              onToggle={() => toggleSection('sponsor-prizes')}
+              description={
+                <p className="text-sm text-muted-foreground">
+                  Add sponsor gifts with a logo, prize image, and title. They
+                  show next to the buy-ticket button and in the prizes section.
+                </p>
+              }
+            >
+              <EventPrizes eventId={event.id} />
+            </EditEventSection>
+
+            <EditEventSection
+              meta={sections[25]!}
+              isOpen={isOpen('group-challenge')}
+              onToggle={() => toggleSection('group-challenge')}
+              description={
+                <p className="text-sm text-muted-foreground">
+                  Turn on the group leaderboard, set the rewards, and show
+                  masked buyer names on the ticket page.
+                </p>
+              }
+            >
+              <EventGroupChallenge eventId={event.id} />
             </EditEventSection>
           </div>
         </div>

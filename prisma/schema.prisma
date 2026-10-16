@@ -71,6 +71,9 @@ model Event {
   shops              Shop[]
   categories         EventCategory[] @relation("EventToEventCategory")
   hosts              User[]          @relation("EventToUser")
+  prizes             EventPrize[]
+  groupChallenge     EventGroupChallenge?
+  referrals          TicketReferral[]
 
   @@unique([title, eventType])
   @@index([id])
@@ -84,6 +87,7 @@ model EventSponsor {
   url         String?    
   description String?
   events      SponsorOnEvent[]
+  prizes      EventPrize[]
   isPartner   Boolean           @default(false)
 }
 
@@ -203,6 +207,7 @@ model User {
   EventHost            Event[]       @relation("EventToUser")
   Shops                Shop[]
   receipts             Receipt[]
+  ticketReferrals      TicketReferral[]
 }
 
 /// Optional special tool: public vote/poll for an event (one poll per event).
@@ -385,6 +390,8 @@ model Payment {
   shop            Shop?        @relation(fields: [shopId], references: [id], onDelete: Restrict)
   shopItem        ShopItem?    @relation(fields: [shopItemId], references: [id], onDelete: Restrict)
   issuedTickets   IssuedTicket[]
+  issuedReferrals TicketReferral[]
+  referralUse     TicketReferralUse?
 }
 
 /// One scannable ticket pass per purchased admission (quantity N => N rows).
@@ -440,12 +447,102 @@ model CheckoutSessionData {
   // Discount applied
   discountApplied Json?            // List of all applied discounts
 
+  /// Referral code captured from the event link (?ref=) at checkout
+  referralCode    String?
+
   stripeSessionId String? @unique // Optional initially, set after session creation
 
   @@index([stripeSessionId]) // Fast lookup in webhook
   @@index([createdAt])       // For cleanup jobs (delete old records)
   @@index([status])          // For querying by status (cleanup, analytics)
-} 
+}
+
+/// Sponsorship gift shown beside ticket purchase and in the prizes section.
+model EventPrize {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  eventId     String
+  sponsorId   String?
+  title       String
+  description String?
+  imageUrl    String?
+  order       Int      @default(0)
+  isPublished Boolean  @default(true)
+
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sponsor     EventSponsor? @relation(fields: [sponsorId], references: [id], onDelete: SetNull)
+
+  @@index([eventId])
+  @@index([sponsorId])
+}
+
+/// One group-challenge leaderboard configuration per event.
+model EventGroupChallenge {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  eventId     String   @unique
+  isEnabled   Boolean  @default(false)
+  title       String   @default("Group Challenge")
+  description String?
+  /// [{ place, title, description, imageUrl }]
+  rewards     Json?
+  /// Referrals after this instant do not count. Interpreted in Pacific time in the editor.
+  endsAt      DateTime?
+  /// Percent off for a friend who checks out with a personal code. 0 means no discount.
+  referralDiscountPercent Int @default(0)
+  /// When true, the referrer's own tickets are added to the public score.
+  countOwnTickets Boolean @default(false)
+  /// Confirmed performers who can claim a code without buying a ticket.
+  performerEmails String[] @default([])
+
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+/// Personal invite code issued to a ticket buyer for one event.
+model TicketReferral {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+
+  code       String   @unique
+  eventId    String
+  ownerEmail String
+  ownerName  String?
+  userId     String?
+  /// First payment that issued this code
+  paymentId  String?
+
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  payment    Payment?  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  uses       TicketReferralUse[]
+
+  @@unique([eventId, ownerEmail])
+  @@index([eventId])
+  @@index([code])
+  @@index([userId])
+  @@index([paymentId])
+}
+
+/// A paid ticket order attributed to someone else's referral code.
+model TicketReferralUse {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+
+  referralId String
+  paymentId  String   @unique
+  buyerEmail String
+  buyerName  String?
+  quantity   Int      @default(1)
+
+  referral   TicketReferral @relation(fields: [referralId], references: [id], onDelete: Cascade)
+  payment    Payment        @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([referralId])
+}
 
 model PostLikes {
   id        String   @id @default(cuid())

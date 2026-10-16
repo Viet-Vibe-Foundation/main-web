@@ -17,6 +17,8 @@ import { buildPostPaymentFormLink } from '@/lib/utils/buildPostPaymentFormLink'
 import { issueTicketsForPayment } from '@/lib/actions/ticket/issueTickets'
 import { buildTicketQrAttachments } from '@/lib/actions/ticket/generateTicketQr'
 import { splitQrAttachments } from '@/lib/actions/ticket/splitQrAttachments'
+import { settleCheckoutReferrals } from '@/lib/actions/referral/ticketReferral'
+import { sumCheckoutTicketQuantity } from '@/lib/actions/referral/referralCode'
 
 // Stripe client
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -500,6 +502,7 @@ export async function POST(req: NextRequest) {
       otherGuestsInfo: Array<{ name: string; email: string; phone: string }> | null
       formResponses: any | null
       discountApplied: any | null
+      referralCode: string | null
     } | null = null
 
     if (metadata?.checkoutDataId) {
@@ -516,6 +519,7 @@ export async function POST(req: NextRequest) {
             otherGuestsInfo: true,
             formResponses: true,
             discountApplied: true,
+            referralCode: true,
           },
         })
         if (data) {
@@ -536,6 +540,7 @@ export async function POST(req: NextRequest) {
             otherGuestsInfo: data.otherGuestsInfo as Array<{ name: string; email: string; phone: string }> | null,
             formResponses: data.formResponses,
             discountApplied: data.discountApplied,
+            referralCode: data.referralCode,
           }
         }
       } catch (e) {
@@ -956,6 +961,42 @@ export async function POST(req: NextRequest) {
         createdEventPaymentIds.push(createdPayment.id)
       }
 
+      let referralByEmail = new Map<string, { code: string; link: string }>()
+      if (
+        metadata.type !== 'Membership' &&
+        metadata.eventId &&
+        guestEmail &&
+        createdEventPaymentIds.length > 0
+      ) {
+        const eventForReferral = await prisma.event.findUnique({
+          where: { id: metadata.eventId },
+          select: { keyName: true, eventType: true },
+        })
+        if (eventForReferral) {
+          referralByEmail = await settleCheckoutReferrals({
+            eventId: metadata.eventId,
+            eventKeyName: eventForReferral.keyName,
+            eventType: eventForReferral.eventType,
+            buyerEmail: guestEmail,
+            buyerName: guestName,
+            userId:
+              metadata.userId && metadata.userId.trim() !== ''
+                ? metadata.userId.trim()
+                : null,
+            paymentId: createdEventPaymentIds[0]!,
+            quantity: sumCheckoutTicketQuantity(
+              checkoutSessionData?.ticketMetadata,
+              quantity
+            ),
+            referralCode: checkoutSessionData?.referralCode,
+            extraRecipients: (otherGuestsInfo ?? []).map((guest) => ({
+              email: guest.email,
+              name: guest.name,
+            })),
+          })
+        }
+      }
+
       // Issue one scannable QR ticket per admission unit (skip membership / shop)
       let issuedTicketsForEmail: IssuedTicket[] = []
       if (
@@ -1166,6 +1207,8 @@ export async function POST(req: NextRequest) {
                           r.ticketSlot === undefined
                             ? qrSplit.purchaser
                             : (qrByRecipient.get(r.to) ?? []),
+                        referralCode: referralByEmail.get(r.to.trim().toLowerCase())?.code,
+                        referralLink: referralByEmail.get(r.to.trim().toLowerCase())?.link,
                       })
                     )
                   )
@@ -1450,6 +1493,8 @@ export async function POST(req: NextRequest) {
                           r.ticketSlot === undefined
                             ? singleQrSplit.purchaser
                             : (singleQrByRecipient.get(r.to) ?? []),
+                        referralCode: referralByEmail.get(r.to.trim().toLowerCase())?.code,
+                        referralLink: referralByEmail.get(r.to.trim().toLowerCase())?.link,
                       })
                     )
                   )

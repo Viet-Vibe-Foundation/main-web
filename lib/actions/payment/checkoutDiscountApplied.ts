@@ -12,6 +12,7 @@ export type CheckoutAppliedDiscountRecord = {
     | 'event_percent'
     | 'event_amount'
     | 'discount_code'
+    | 'referral'
   ticketId?: string
   /** Member tier percent from EventTicket.discountMemberPercent */
   percentOff?: number

@@ -13,6 +13,9 @@ import SponsorsList from '../../../_components/SponsorsList'
 import ServerError from '@/components/error/ServerError'
 import VolunteerSection from './VolunteerSection'
 import EventVotingPanel from '../EventVotingPanel'
+import { SponsorPrizeTeaser, SponsorPrizesSection } from '../../../_components/SponsorPrizes'
+import { GroupChallengeBoard } from '../../../_components/GroupChallengeBoard'
+import { getEventReferralDiscountPercent } from '@/lib/actions/referral/referralOffer'
 
 // Interfaces & Types
 import {
@@ -59,6 +62,7 @@ interface ClassDescriptionProps {
   linkedJobs: Job[]
   discounts: JsonValue
   seriesId?: string
+  referralCode?: string | null
 }
 
 const typeMap = {
@@ -92,8 +96,10 @@ const ClassDescription = async ({
   linkedJobs,
   discounts,
   seriesId,
+  referralCode,
 }: ClassDescriptionProps) => {
   const { t } = await initTranslation(locale, ['event', 'common'])
+  const referralDiscountPercent = await getEventReferralDiscountPercent(classId)
 
   // Get the current user's id
   const session = await auth()
@@ -259,18 +265,23 @@ const ClassDescription = async ({
               </div>
 
               {/* Payment Options */}
-              <PaymentOptions
-                formLink={formLink}
-                eventKeyName={keyName}
-                eventId={classId}
-                title={title}
-                userId={author}
-                type={typeMap[eventType as keyof typeof typeMap]}
-                loggedIn={author ? true : false}
-                tickets={tickets}
-                isCapacityExceeded={isCapacityExceeded}
-                discounts={discounts}
-              />
+              <div id="checkout-section" className="flex flex-col gap-3">
+                <SponsorPrizeTeaser eventId={classId} />
+                <PaymentOptions
+                  formLink={formLink}
+                  eventKeyName={keyName}
+                  eventId={classId}
+                  title={title}
+                  userId={author}
+                  type={typeMap[eventType as keyof typeof typeMap]}
+                  loggedIn={author ? true : false}
+                  tickets={tickets}
+                  isCapacityExceeded={isCapacityExceeded}
+                  discounts={discounts}
+                  referralCode={referralCode}
+                  referralDiscountPercent={referralDiscountPercent}
+                />
+              </div>
 
               {existingPayment && existingPayment.length > 0 && (
                 <p className="text-[clamp(0.75rem,1.5vh,1rem)] font-medium text-green-600">
@@ -281,7 +292,9 @@ const ClassDescription = async ({
           </div>
         </div>
 
-        <div className="mt-6 w-full">
+        <div className="mt-6 flex w-full flex-col gap-8">
+          <SponsorPrizesSection eventId={classId} locale={locale} />
+          <GroupChallengeBoard eventId={classId} locale={locale} />
           <EventVotingPanel
             eventId={classId}
             locale={locale}

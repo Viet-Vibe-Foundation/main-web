@@ -6,12 +6,15 @@ import Link from 'next/link'
 import { useTranslation } from 'react-i18next'
 import { useSession } from 'next-auth/react'
 import '@/lib/ui/css/lineAnimation.css'
+import InviteFriends from '@/components/payment/InviteFriends'
 
 interface PaymentSuccessProps {
   title: string
   locale: string
   translationWorkspaces: string[]
   isGuestCheckout?: boolean
+  referralCode?: string | null
+  referralLink?: string | null
 }
 
 const PAYMENT_SUCCESS_IMAGE =
@@ -22,6 +25,8 @@ const PaymentSuccess = ({
   locale,
   translationWorkspaces,
   isGuestCheckout = false,
+  referralCode,
+  referralLink,
 }: PaymentSuccessProps) => {
   // @ts-ignore: useTranslation will always throw an error for typescript
   const { t } = useTranslation(translationWorkspaces)
@@ -118,6 +123,10 @@ const PaymentSuccess = ({
       <p className="max-w-xl text-lg text-neutral-700 dark:text-neutral-300">
         {t('paymentSuccess-closing')}
       </p>
+
+      {referralCode && referralLink && (
+        <InviteFriends code={referralCode} link={referralLink} />
+      )}
 
       <p className="max-w-xl text-left text-sm text-neutral-600 dark:text-neutral-400 italic pt-2">
         <strong>*Note:</strong> If you make a <strong>group purchase</strong>, a

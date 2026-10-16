@@ -12,6 +12,7 @@ import { SeatingMap } from '../../(Admin)/editEvent/[eventKeyName]/_components/E
 // Libraries
 import { Metadata } from 'next'
 import { getEventByKeyName } from '@/lib/actions/event/getEventById'
+import { normalizeReferralCode } from '@/lib/actions/referral/referralCode'
 
 export async function generateMetadata({
   params,
@@ -38,11 +39,14 @@ export async function generateMetadata({
 // Interfaces
 interface ClassPageProps {
   params: Promise<{ locale: string; eventKeyName: string }>
+  searchParams: Promise<{ ref?: string }>
 }
 
 // Main Component
-const ClassPage = async ({ params }: ClassPageProps) => {
+const ClassPage = async ({ params, searchParams }: ClassPageProps) => {
   const { locale, eventKeyName } = await params
+  const { ref } = await searchParams
+  const referralCode = normalizeReferralCode(ref)
 
   const publishedClass = await getEventByKeyName(eventKeyName)
 
@@ -65,6 +69,7 @@ const ClassPage = async ({ params }: ClassPageProps) => {
             reviewsCount={publishedClass._count.Review}
             seriesId={publishedClass.series?.id}
             seatingMap={publishedClass.seatingMap as SeatingMap}
+            referralCode={referralCode}
           />
         </div>
       ) : (
@@ -109,6 +114,7 @@ const ClassPage = async ({ params }: ClassPageProps) => {
             linkedJobs={publishedClass.jobs}
             discounts={publishedClass.eventDiscounts}
             seriesId={publishedClass.series?.id}
+            referralCode={referralCode}
           />
         </div>
       )}

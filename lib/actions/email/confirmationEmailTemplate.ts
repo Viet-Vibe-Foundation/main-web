@@ -14,6 +14,8 @@ export type ConfirmationEmailPlaceholderKey =
   | 'eventEndTime'
   | 'formLink'
   | 'qrCodes'
+  | 'referralCode'
+  | 'referralLink'
 
 export type ConfirmationEmailPlaceholder = {
   key: ConfirmationEmailPlaceholderKey
@@ -114,6 +116,18 @@ export const CONFIRMATION_EMAIL_PLACEHOLDERS: ConfirmationEmailPlaceholder[] = [
     description: 'Entry QR image(s) — one per ticket',
     token: '<<qrCodes>>',
   },
+  {
+    key: 'referralCode',
+    label: 'Referral code',
+    description: 'This buyer’s personal invite code',
+    token: '<<referralCode>>',
+  },
+  {
+    key: 'referralLink',
+    label: 'Referral link',
+    description: 'Personal invite link for this buyer',
+    token: '<<referralLink>>',
+  },
 ]
 
 export const DEFAULT_CONFIRMATION_EMAIL_SUBJECT =
@@ -130,6 +144,9 @@ export const DEFAULT_CONFIRMATION_EMAIL_BODY = `<p>Hi <<firstName>>,</p>
 <strong>Where:</strong> <<eventLocation>></p>
 <p>Please arrive 15 minutes early so we can check you in.</p>
 <<qrCodes>>
+<p><strong>Invite your friends</strong><br/>
+Your referral code: <<referralCode>><br/>
+<<referralLink>></p>
 <p>If a registration form is required, use this link: <<formLink>></p>
 <p>Questions? Contact us at <a href="mailto:tech@vietvibe.org">tech@vietvibe.org</a>.</p>`
 
@@ -185,7 +202,7 @@ export function renderConfirmationEmailTemplate(
     const value = values[key]
     if (value === undefined || value === null) return ''
     // qrCodes is trusted HTML we generate; other values are escaped
-    if (key === 'qrCodes' || key === 'formLink') {
+    if (key === 'qrCodes' || key === 'formLink' || key === 'referralLink') {
       return value
     }
     return escapeHtml(value)
@@ -196,6 +213,7 @@ export function renderConfirmationEmailTemplate(
 const HTML_ONLY_PLACEHOLDERS: ConfirmationEmailPlaceholderKey[] = [
   'qrCodes',
   'formLink',
+  'referralLink',
 ]
 
 /**
@@ -301,11 +319,17 @@ export function buildConfirmationEmailValues(input: {
   eventEndTime?: string | null
   formLink?: string | null
   qrCodes?: TicketQrInlineImage[]
+  referralCode?: string | null
+  referralLink?: string | null
 }): ConfirmationEmailValues {
   const currency = (input.currency || 'CAD').toUpperCase()
   const formLink = input.formLink?.trim()
   const formLinkHtml = formLink
     ? `<a href="${escapeHtml(formLink)}" style="color:#2563eb;">${escapeHtml(formLink)}</a>`
+    : ''
+  const referralLink = input.referralLink?.trim()
+  const referralLinkHtml = referralLink
+    ? `<a href="${escapeHtml(referralLink)}" style="color:#be123c;font-weight:bold;">${escapeHtml(referralLink)}</a>`
     : ''
 
   return {
@@ -324,5 +348,31 @@ export function buildConfirmationEmailValues(input: {
     eventEndTime: input.eventEndTime || '',
     formLink: formLinkHtml,
     qrCodes: buildQrCodesHtml(input.qrCodes || []),
+    referralCode: input.referralCode?.trim() || '',
+    referralLink: referralLinkHtml,
   }
+}
+
+export function buildReferralInviteHtml(code: string, link: string): string {
+  const safeCode = escapeHtml(code)
+  const safeLink = escapeHtml(link)
+  return `
+    <div style="margin-top:24px;padding:16px;border-radius:8px;border:1px solid #fecdd3;background:#fff1f2;">
+      <p style="font-size:16px;font-weight:bold;color:#9f1239;margin:0 0 8px;">Invite Your Friends</p>
+      <p style="font-size:14px;color:#374151;margin:0 0 12px;">Share your personal link. Friends who buy a ticket with it join your group on the leaderboard.</p>
+      <p style="font-size:14px;color:#111827;margin:0 0 12px;"><strong>Your code:</strong> ${safeCode}</p>
+      <a href="${safeLink}" style="display:inline-block;padding:10px 18px;background:#be123c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">Invite Your Friends</a>
+      <p style="font-size:12px;color:#6b7280;margin:12px 0 0;word-break:break-all;">${safeLink}</p>
+    </div>`
+}
+
+/** Adds the invite block when a custom template did not already include the code. */
+export function appendReferralInviteHtml(
+  html: string,
+  code?: string | null,
+  link?: string | null
+): string {
+  if (!code?.trim() || !link?.trim()) return html
+  if (html.includes(code.trim())) return html
+  return `${html}\n${buildReferralInviteHtml(code.trim(), link.trim())}`
 }

@@ -10,6 +10,11 @@ import {
   roundMoney,
 } from '@/lib/actions/price/quantityRangeDiscount'
 import { buildAppliedDiscountsMulti } from '@/lib/actions/payment/checkoutDiscountApplied'
+import { normalizeReferralCode } from '@/lib/actions/referral/referralCode'
+import {
+  getActiveReferralDiscount,
+  priceWithReferralDiscount,
+} from '@/lib/actions/referral/referralOffer'
 
 // ##################### FLOW OF PRICES ######################
 // Discount price creation (event_discount)
@@ -99,6 +104,7 @@ export async function POST(req: Request) {
       formResponses, // Event form responses
       pricingIsSubscribed,
       pricingHasStudentDiscount,
+      referralCode,
     }: {
       eventKeyName: string
       userId?: string
@@ -114,7 +120,10 @@ export async function POST(req: Request) {
       /** Matches client member pricing (additive with student in getFinalTicketPrice). */
       pricingIsSubscribed?: boolean
       pricingHasStudentDiscount?: boolean
+      referralCode?: string
     } = await req.json()
+
+    const normalizedReferralCode = normalizeReferralCode(referralCode)
 
     if (!checkoutItems || !Array.isArray(checkoutItems) || checkoutItems.length === 0) {
       return NextResponse.json(
@@ -824,6 +833,15 @@ export async function POST(req: Request) {
       }
     }
 
+    const referralDiscount = type === 'Membership'
+      ? null
+      : await getActiveReferralDiscount({
+          eventId,
+          code: normalizedReferralCode,
+          buyerEmail: mainEmail,
+        })
+    const referralPriceCache = new Map<string, string>()
+
     for (const item of checkoutItems) {
       const resolvedPriceId = resolveStripePriceId(item)
       let priceIdToUse = resolvedPriceId
@@ -831,6 +849,15 @@ export async function POST(req: Request) {
       // If a quantity-range or event discount price was created, charge that price
       if (discountedPriceCache.has(resolvedPriceId)) {
         priceIdToUse = discountedPriceCache.get(resolvedPriceId)!
+      }
+
+      if (referralDiscount) {
+        priceIdToUse = await priceWithReferralDiscount(
+          stripe,
+          priceIdToUse,
+          referralDiscount.percent,
+          referralPriceCache
+        )
       }
 
       // Create line items: one per seat for seated tickets, or use quantity for non-seated tickets
@@ -899,6 +926,13 @@ export async function POST(req: Request) {
       verifiedCodeDiscount,
       codeDiscountApplied,
     }),
+      ...(referralDiscount
+        ? [{
+            kind: 'referral' as const,
+            code: referralDiscount.code,
+            percentOff: referralDiscount.percent,
+          }]
+        : []),
     ]
 
     // Save all checkout data to CheckoutSessionData before creating Stripe session
@@ -917,6 +951,7 @@ export async function POST(req: Request) {
         // Event form responses
         formResponses: formResponses || undefined,
         discountApplied: discountApplied.length > 0 ? discountApplied : undefined,
+        referralCode: normalizedReferralCode || undefined,
       },
     })
 
@@ -930,8 +965,8 @@ export async function POST(req: Request) {
         type === 'Membership'
           ? `${origin}/registration/membership/payment/success`
           : type === 'Concert'
-            ? `${origin}/events/concert/${eventKeyName}/payment/success`
-            : `${origin}/events/class/${eventKeyName}/payment/success`,
+            ? `${origin}/events/concert/${eventKeyName}/payment/success?session_id={CHECKOUT_SESSION_ID}`
+            : `${origin}/events/class/${eventKeyName}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url:
         type === 'Membership'
           ? `${origin}/registration/membership`

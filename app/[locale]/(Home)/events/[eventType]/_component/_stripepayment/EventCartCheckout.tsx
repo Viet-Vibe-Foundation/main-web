@@ -61,6 +61,7 @@ interface EventCartCheckoutProps {
   selectedTickets?: SelectedTicketWithQuantity[] // Tickets selected from EventSingleCheckOut
   discounts: JsonValue
   userInfo?: UserInfoProps | null
+  referralCode?: string | null
 }
 
 // Shape of discounts stored in event.eventDiscounts JSON field
@@ -97,6 +98,7 @@ export default function EventCartCheckout({
   selectedTickets = [],
   discounts = [],
   userInfo,
+  referralCode,
 }: EventCartCheckoutProps) {
   // @ts-ignore: useTranslation will always throw an error for TypeScript
   const { t } = useTranslation('event')
@@ -1040,6 +1042,7 @@ export default function EventCartCheckout({
           ...(formattedFormResponses && {
             formResponses: formattedFormResponses,
           }),
+          ...(referralCode && { referralCode }),
         }
       )
 
