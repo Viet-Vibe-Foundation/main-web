@@ -261,6 +261,130 @@ export function wrapConfirmationEmailHtml(bodyHtml: string): string {
 </html>`
 }
 
+/**
+ * Rich-text and HTML editors often store `<<firstName>>` as
+ * `&lt;&lt;firstName&gt;&gt;`, which would otherwise never be replaced.
+ */
+const ESCAPED_PLACEHOLDER_REGEX =
+  /(?:&lt;|&#0*60;|&#x0*3c;){2}\s*([a-zA-Z0-9_]+)\s*(?:&gt;|&#0*62;|&#x0*3e;){2}/gi
+
+const HTML_TAG_REGEX = /<\/?[a-z][a-z0-9-]*(?:\s[^<>]*)?\/?>/i
+const FULL_HTML_DOCUMENT_REGEX = /<(?:!doctype|html|body)[\s>]/i
+const BLOCK_PLACEHOLDER_LINE_REGEX = /^<<\s*qrCodes\s*>>$/
+
+export function normalizeEscapedPlaceholders(template: string): string {
+  return template.replace(ESCAPED_PLACEHOLDER_REGEX, '<<$1>>')
+}
+
+export function isHtmlTemplate(template: string): boolean {
+  return HTML_TAG_REGEX.test(template.replace(PLACEHOLDER_REGEX, ''))
+}
+
+function escapeHtmlPreservingPlaceholders(text: string): string {
+  let out = ''
+  let last = 0
+  for (const match of text.matchAll(PLACEHOLDER_REGEX)) {
+    const index = match.index ?? 0
+    out += escapeHtml(text.slice(last, index)) + match[0]
+    last = index + match[0].length
+  }
+  return out + escapeHtml(text.slice(last))
+}
+
+function renderPlainTextTable(lines: string[]): string {
+  const rows = lines
+    .map((line) => {
+      const [label, ...rest] = line.split(/\t+/)
+      return `<tr><td style="padding:4px 16px 4px 0;font-weight:bold;color:#374151;vertical-align:top;white-space:nowrap;">${escapeHtmlPreservingPlaceholders(label.trim())}</td><td style="padding:4px 0;color:#111827;vertical-align:top;">${escapeHtmlPreservingPlaceholders(rest.join(' ').trim())}</td></tr>`
+    })
+    .join('')
+  return `<table cellpadding="0" cellspacing="0" style="margin:0 0 16px 0;border-collapse:collapse;font-size:14px;"><tbody>${rows}</tbody></table>`
+}
+
+function renderPlainTextParagraph(lines: string[]): string {
+  return `<p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;color:#111827;">${lines
+    .map(escapeHtmlPreservingPlaceholders)
+    .join('<br/>')}</p>`
+}
+
+/**
+ * Convert a plain-text template into email-safe HTML: blank lines start a new
+ * paragraph, single line breaks are kept, lines with tabs (e.g. pasted from a
+ * spreadsheet or doc table) become a two-column table, and a line holding only
+ * <<qrCodes>> is left as a standalone block. Placeholders are kept intact.
+ */
+export function plainTextTemplateToHtml(template: string): string {
+  const blocks = template
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .split(/\n[ \t]*\n/)
+
+  return blocks
+    .map((block) => {
+      const parts: string[] = []
+      let textLines: string[] = []
+      let tableLines: string[] = []
+
+      const flush = () => {
+        if (textLines.length) parts.push(renderPlainTextParagraph(textLines))
+        if (tableLines.length) parts.push(renderPlainTextTable(tableLines))
+        textLines = []
+        tableLines = []
+      }
+
+      for (const rawLine of block.split('\n')) {
+        const line = rawLine.replace(/\s+$/, '')
+        if (BLOCK_PLACEHOLDER_LINE_REGEX.test(line.trim())) {
+          flush()
+          parts.push(line.trim())
+        } else if (line.includes('\t') && line.trim()) {
+          if (textLines.length) flush()
+          tableLines.push(line.trim())
+        } else {
+          if (tableLines.length) flush()
+          textLines.push(line)
+        }
+      }
+      flush()
+      return parts.join('\n')
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function insertBeforeBodyEnd(html: string, extra: string): string {
+  const closeIdx = html.search(/<\/body\s*>/i)
+  if (closeIdx === -1) return `${html}\n${extra}`
+  return `${html.slice(0, closeIdx)}${extra}\n${html.slice(closeIdx)}`
+}
+
+/**
+ * Render a staff-authored body into a complete email document. Accepts plain
+ * text, an HTML fragment, or a full HTML document (which is sent as-is instead
+ * of being nested inside the VVF wrapper).
+ */
+export function renderConfirmationEmailBody(
+  template: string,
+  values: ConfirmationEmailValues,
+  referral?: { code?: string | null; link?: string | null }
+): string {
+  const normalized = normalizeEscapedPlaceholders(template)
+  const isHtml = isHtmlTemplate(normalized)
+  const sourceHtml = isHtml ? normalized : plainTextTemplateToHtml(normalized)
+  const rendered = renderConfirmationEmailTemplate(sourceHtml, values)
+
+  if (isHtml && FULL_HTML_DOCUMENT_REGEX.test(rendered)) {
+    const code = referral?.code?.trim()
+    const link = referral?.link?.trim()
+    if (!code || !link || rendered.includes(code)) return rendered
+    return insertBeforeBodyEnd(rendered, buildReferralInviteHtml(code, link))
+  }
+
+  return wrapConfirmationEmailHtml(
+    appendReferralInviteHtml(rendered, referral?.code, referral?.link)
+  )
+}
+
 /** Detect an open `<<partial` token at the cursor for suggestion menus. */
 export function getOpenPlaceholderQuery(
   value: string,

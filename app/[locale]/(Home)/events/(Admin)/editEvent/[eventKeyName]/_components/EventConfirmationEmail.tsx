@@ -34,8 +34,10 @@ import {
   CONFIRMATION_EMAIL_PLACEHOLDERS,
   DEFAULT_CONFIRMATION_EMAIL_BODY,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
+  buildConfirmationEmailValues,
   filterPlaceholders,
   getOpenPlaceholderQuery,
+  renderConfirmationEmailBody,
   type ConfirmationEmailPlaceholder,
 } from '@/lib/actions/email/confirmationEmailTemplate'
 
@@ -45,7 +47,7 @@ interface EventConfirmationEmailProps {
 
 const schema = z.object({
   confirmationEmailSubject: z.string().max(200),
-  confirmationEmailBody: z.string().max(20000),
+  confirmationEmailBody: z.string().max(100000),
 })
 
 type InsertTarget = 'subject' | 'body'
@@ -70,6 +72,7 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
   const [insertTarget, setInsertTarget] = useState<InsertTarget>('body')
   const [dropdownValue, setDropdownValue] = useState<string>('')
   const [suggestion, setSuggestion] = useState<SuggestionState>(null)
+  const [showPreview, setShowPreview] = useState(false)
 
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -78,6 +81,32 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
       confirmationEmailBody: event.confirmationEmailBody || '',
     },
   })
+
+  const watchedBody = form.watch('confirmationEmailBody')
+  const previewHtml = useMemo(() => {
+    if (!showPreview) return ''
+    const template = watchedBody?.trim() || DEFAULT_CONFIRMATION_EMAIL_BODY
+    return renderConfirmationEmailBody(
+      template,
+      buildConfirmationEmailValues({
+        firstName: 'Alex',
+        guestName: 'Alex Nguyen',
+        ticketType: 'General Admission',
+        pricePaid: 25,
+        quantity: 2,
+        eventTitle: event.title,
+        seatNumber: 'A1, A2',
+        eventStartDate: event.startDate,
+        eventEndDate: event.endDate,
+        eventLocation: event.location,
+        eventStartTime: event.startTime,
+        eventEndTime: event.endTime,
+        formLink: 'https://www.vietvibe.org/form',
+        referralCode: 'AB12CD34',
+        referralLink: 'https://www.vietvibe.org/?ref=AB12CD34',
+      })
+    )
+  }, [showPreview, watchedBody, event])
 
   // The subject is plain text, so HTML-only fields are body-only.
   const placeholdersForTarget = useCallback(
@@ -544,6 +573,14 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Body (HTML or plain text)</FormLabel>
+                    <p className="text-xs text-muted-foreground">
+                      Plain text keeps its line breaks; leave a blank line
+                      between paragraphs. Lines with a tab (e.g. a table
+                      pasted from a doc) become a table. Put{' '}
+                      <code>&lt;&lt;qrCodes&gt;&gt;</code> on its own line.
+                      HTML fragments and full HTML documents are also
+                      supported.
+                    </p>
                     <FormControl>
                       <div className="relative">
                         <Textarea
@@ -610,11 +647,34 @@ const EventConfirmationEmail = ({ event }: EventConfirmationEmailProps) => {
                   type="button"
                   variant="outline"
                   disabled={isLoading}
+                  onClick={() => setShowPreview((prev) => !prev)}
+                >
+                  {showPreview ? 'Hide preview' : 'Preview'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isLoading}
                   onClick={() => void clearTemplate()}
                 >
                   Use default email
                 </Button>
               </div>
+
+              {showPreview && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    Preview with sample guest data. QR images appear in the
+                    real email.
+                  </p>
+                  <iframe
+                    title="Confirmation email preview"
+                    srcDoc={previewHtml}
+                    sandbox=""
+                    className="h-[600px] w-full rounded border border-slate-200 bg-white"
+                  />
+                </div>
+              )}
             </form>
           </Form>
         ) : !hasCustomTemplate ? (

@@ -5,6 +5,9 @@ import {
   buildQrCodesHtml,
   filterPlaceholders,
   getOpenPlaceholderQuery,
+  isHtmlTemplate,
+  plainTextTemplateToHtml,
+  renderConfirmationEmailBody,
   renderConfirmationEmailSubject,
   renderConfirmationEmailTemplate,
 } from './confirmationEmailTemplate'
@@ -87,6 +90,48 @@ describe('confirmationEmailTemplate', () => {
     })
     expect(getOpenPlaceholderQuery('Hello <<firstName>>!', 19)).toBeNull()
     expect(getOpenPlaceholderQuery('No token here', 5)).toBeNull()
+  })
+
+  test('plain text keeps paragraphs, line breaks, and tab tables', () => {
+    const html = plainTextTemplateToHtml(
+      'Hi <<firstName>>,\n\nThanks & welcome!\nSee you soon.\n\n🎟 Your Ticket\nEvent\t<<eventTitle>>\nQuantity\t<<quantity>>\n📱 YOUR ENTRY QR CODE\n<<qrCodes>>\nKeep this email.'
+    )
+    expect(html).toContain('>Hi <<firstName>>,</p>')
+    expect(html).toContain('Thanks &amp; welcome!<br/>See you soon.</p>')
+    expect(html).toContain('<table')
+    expect(html).toContain('>Event</td>')
+    expect(html).toContain('><<eventTitle>></td>')
+    expect(html).toMatch(/<\/table>\n<p[^>]*>📱 YOUR ENTRY QR CODE<\/p>\n<<qrCodes>>\n<p/)
+  })
+
+  test('renderConfirmationEmailBody fills placeholders in plain text', () => {
+    const html = renderConfirmationEmailBody('Hi <<firstName>>,\n\nBye', {
+      firstName: 'Ada',
+    })
+    expect(html).toContain('>Hi Ada,</p>')
+    expect(html).toContain('>Bye</p>')
+    expect(html).toContain('Viet Vibe Foundation')
+  })
+
+  test('renderConfirmationEmailBody fills HTML-escaped placeholders', () => {
+    const html = renderConfirmationEmailBody(
+      '<p>Hi &lt;&lt;firstName&gt;&gt; and &#60;&#60;guestName&#62;&#62;</p>',
+      { firstName: 'Ada', guestName: 'Ada L' }
+    )
+    expect(html).toContain('<p>Hi Ada and Ada L</p>')
+    expect(isHtmlTemplate('Hi <<firstName>>')).toBe(false)
+    expect(isHtmlTemplate('<p>Hi <<firstName>></p>')).toBe(true)
+  })
+
+  test('full HTML documents are not nested and get the referral block inside body', () => {
+    const html = renderConfirmationEmailBody(
+      '<!DOCTYPE html><html><head><style>p{color:red}</style></head><body><p>Hi <<firstName>></p></body></html>',
+      { firstName: 'Ada' },
+      { code: 'AB12CD34', link: 'https://x.org/?ref=AB12CD34' }
+    )
+    expect(html.match(/<html/gi)).toHaveLength(1)
+    expect(html).toContain('<style>p{color:red}</style>')
+    expect(html.indexOf('AB12CD34')).toBeLessThan(html.indexOf('</body>'))
   })
 
   test('filterPlaceholders matches key and label', () => {

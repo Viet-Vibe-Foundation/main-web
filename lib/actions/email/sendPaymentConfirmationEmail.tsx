@@ -9,10 +9,8 @@ import type { TicketQrInlineImage } from '@/lib/actions/email/confirmationEmailT
 import {
   buildConfirmationEmailValues,
   DEFAULT_CONFIRMATION_EMAIL_SUBJECT,
-  appendReferralInviteHtml,
+  renderConfirmationEmailBody,
   renderConfirmationEmailSubject,
-  renderConfirmationEmailTemplate,
-  wrapConfirmationEmailHtml,
 } from '@/lib/actions/email/confirmationEmailTemplate'
 
 // Interfaces and Types
@@ -616,13 +614,10 @@ export async function sendPaymentConfirmationEmail({
       const subject =
         renderConfirmationEmailSubject(subjectTemplate, values) ||
         DEFAULT_CONFIRMATION_EMAIL_SUBJECT
-      const bodyHtml = wrapConfirmationEmailHtml(
-        appendReferralInviteHtml(
-          renderConfirmationEmailTemplate(trimmedCustomBody, values),
-          referralCode,
-          referralLink
-        )
-      )
+      const bodyHtml = renderConfirmationEmailBody(trimmedCustomBody, values, {
+        code: referralCode,
+        link: referralLink,
+      })
 
       const result = await resend.emails.send({
         from: 'VVF Admin <admin.tech@vietvibe.org>',
