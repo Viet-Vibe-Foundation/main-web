@@ -12,6 +12,7 @@ import {
   type PublicEventVote,
 } from '@/lib/actions/vote/eventVote'
 import { formatVotingWindowLabel } from '@/lib/actions/vote/votingWindow'
+import { selectionRequirementLabel } from '@/lib/actions/vote/selectionLimits'
 
 interface EventVotingPanelProps {
   eventId: string
@@ -31,7 +32,7 @@ export default function EventVotingPanel({
   const [vote, setVote] = useState<PublicEventVote | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [selectedOptionId, setSelectedOptionId] = useState<string>('')
+  const [selectedOptionIds, setSelectedOptionIds] = useState<string[]>([])
   const [nickname, setNickname] = useState('')
   const [mode, setMode] = useState<'account' | 'nickname'>(
     isLoggedIn ? 'account' : 'nickname'
@@ -42,10 +43,12 @@ export default function EventVotingPanel({
     try {
       const data = await getPublicEventVote(eventId)
       setVote(data)
-      if (data?.myBallot) {
-        setSelectedOptionId((prev) => prev || data.myBallot!.optionId)
-        if (data.myBallot.nickname) {
-          setNickname((prev) => prev || data.myBallot!.nickname || '')
+      if (data?.mySelections) {
+        setSelectedOptionIds((prev) =>
+          prev.length > 0 ? prev : data.mySelections!.optionIds
+        )
+        if (data.mySelections.nickname) {
+          setNickname((prev) => prev || data.mySelections!.nickname || '')
           setMode('nickname')
         }
       }
@@ -79,13 +82,37 @@ export default function EventVotingPanel({
 
   if (!vote) return null
 
-  const alreadyVoted = Boolean(vote.myBallot)
+  const alreadyVoted = Boolean(vote.mySelections)
   const votingOpen = vote.isVotingOpen
+  const selectionCount = selectedOptionIds.length
+  const selectionInRange =
+    selectionCount >= vote.minSelections &&
+    selectionCount <= vote.maxSelections
   const canSubmit =
     votingOpen &&
-    selectedOptionId &&
+    selectionInRange &&
     (mode === 'account' ? isLoggedIn : nickname.trim().length > 0) &&
     (!alreadyVoted || vote.allowChangeVote)
+  const requirement = selectionRequirementLabel(
+    vote.minSelections,
+    vote.maxSelections
+  )
+
+  const toggleOption = (optionId: string) => {
+    if (vote.maxSelections <= 1) {
+      setSelectedOptionIds([optionId])
+      return
+    }
+    if (selectedOptionIds.includes(optionId)) {
+      setSelectedOptionIds(selectedOptionIds.filter((id) => id !== optionId))
+      return
+    }
+    if (selectedOptionIds.length >= vote.maxSelections) {
+      toast.error(`You can select at most ${vote.maxSelections} options`)
+      return
+    }
+    setSelectedOptionIds([...selectedOptionIds, optionId])
+  }
 
   const statusMessage =
     vote.votingStatus === 'upcoming'
@@ -104,7 +131,7 @@ export default function EventVotingPanel({
     try {
       const result = await castEventVote({
         eventId,
-        optionId: selectedOptionId,
+        optionIds: selectedOptionIds,
         nickname: mode === 'nickname' ? nickname.trim() : undefined,
       })
       if (!result.success) {
@@ -158,10 +185,13 @@ export default function EventVotingPanel({
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           <p className="text-sm font-medium text-slate-700">{statusMessage}</p>
+          <p className="text-sm text-muted-foreground">
+            {requirement}. Selected {selectionCount} of {vote.maxSelections}.
+          </p>
 
           <div className="space-y-2">
             {vote.options.map((option) => {
-              const selected = selectedOptionId === option.id
+              const selected = selectedOptionIds.includes(option.id)
               const pct =
                 vote.totalVotes > 0
                   ? Math.round((option.voteCount / vote.totalVotes) * 100)
@@ -173,7 +203,7 @@ export default function EventVotingPanel({
                   key={option.id}
                   type="button"
                   disabled={disabled}
-                  onClick={() => setSelectedOptionId(option.id)}
+                  onClick={() => toggleOption(option.id)}
                   className={`relative w-full overflow-hidden rounded-lg border px-4 py-3 text-left transition ${
                     selected
                       ? 'border-red-500 ring-1 ring-red-500'
@@ -263,7 +293,7 @@ export default function EventVotingPanel({
                     : 'Submit vote'}
               </Button>
               <p className="text-xs text-muted-foreground">
-                One vote per device and per account.
+                {requirement}. One submission per device and per account.
                 {!vote.allowChangeVote &&
                   ' Changing votes is disabled for this poll.'}
               </p>

@@ -15,6 +15,10 @@ import {
   isVotingOpen,
   type VotingWindowStatus,
 } from '@/lib/actions/vote/votingWindow'
+import {
+  validateCastSelection,
+  validateSelectionLimits,
+} from '@/lib/actions/vote/selectionLimits'
 
 export type PublicVoteOption = {
   id: string
@@ -38,6 +42,8 @@ export type PublicEventVote = {
   question: string
   description: string | null
   allowChangeVote: boolean
+  minSelections: number
+  maxSelections: number
   votingStartsAt: Date | null
   votingEndsAt: Date | null
   votingStatus: VotingWindowStatus
@@ -45,28 +51,27 @@ export type PublicEventVote = {
   totalVotes: number
   options: PublicVoteOption[]
   ballots: PublicVoteBallot[]
-  myBallot: {
-    id: string
-    optionId: string
+  /** Null until this device or account has voted. optionIds are the current picks. */
+  mySelections: {
+    optionIds: string[]
     nickname: string | null
   } | null
 }
 
-async function findExistingBallot(voteId: string, userId: string | null, deviceToken: string | null) {
-  if (userId) {
-    const byUser = await prisma.eventVoteBallot.findFirst({
-      where: { voteId, userId },
-    })
-    if (byUser) return byUser
-  }
-  if (deviceToken) {
-    return prisma.eventVoteBallot.findUnique({
-      where: {
-        voteId_deviceToken: { voteId, deviceToken },
-      },
-    })
-  }
-  return null
+async function findVoterBallots(
+  voteId: string,
+  userId: string | null,
+  deviceToken: string | null
+) {
+  const or: Array<{ userId: string } | { deviceToken: string }> = []
+  if (userId) or.push({ userId })
+  if (deviceToken) or.push({ deviceToken })
+  if (or.length === 0) return []
+
+  return prisma.eventVoteBallot.findMany({
+    where: { voteId, OR: or },
+    orderBy: { createdAt: 'asc' },
+  })
 }
 
 export async function getPublicEventVote(
@@ -90,7 +95,12 @@ export async function getPublicEventVote(
   const session = await auth()
   const userId = session?.user?.id ?? null
   const deviceToken = await readVoterDeviceToken()
-  const existing = await findExistingBallot(vote.id, userId, deviceToken)
+  const mine = vote.ballots.filter(
+    (ballot) =>
+      (userId !== null && ballot.userId === userId) ||
+      (deviceToken !== null && ballot.deviceToken === deviceToken)
+  )
+  const mineIds = new Set(mine.map((ballot) => ballot.id))
   const now = new Date()
   const votingStatus = getVotingWindowStatus(
     vote.votingStartsAt,
@@ -111,6 +121,8 @@ export async function getPublicEventVote(
     question: vote.question,
     description: vote.description,
     allowChangeVote: vote.allowChangeVote,
+    minSelections: vote.minSelections,
+    maxSelections: vote.maxSelections,
     votingStartsAt: vote.votingStartsAt,
     votingEndsAt: vote.votingEndsAt,
     votingStatus,
@@ -128,13 +140,14 @@ export async function getPublicEventVote(
       optionLabel: ballot.option.label,
       displayName: displayVoterLabel(ballot),
       createdAt: ballot.createdAt,
-      isMine: existing?.id === ballot.id,
+      isMine: mineIds.has(ballot.id),
     })),
-    myBallot: existing
+    mySelections: mine.length
       ? {
-          id: existing.id,
-          optionId: existing.optionId,
-          nickname: existing.nickname,
+          optionIds: vote.options
+            .map((option) => option.id)
+            .filter((id) => mine.some((ballot) => ballot.optionId === id)),
+          nickname: mine.find((ballot) => ballot.nickname)?.nickname ?? null,
         }
       : null,
   }
@@ -160,6 +173,8 @@ export type SaveEventVoteInput = {
   description?: string | null
   isEnabled: boolean
   allowChangeVote: boolean
+  minSelections: number
+  maxSelections: number
   votingStartsAt?: Date | null
   votingEndsAt?: Date | null
   options: Array<{ id?: string; label: string }>
@@ -186,6 +201,14 @@ export async function saveEventVote(input: SaveEventVoteInput) {
       error: 'Add at least two voting options',
     }
   }
+  const limits = validateSelectionLimits(
+    input.minSelections,
+    input.maxSelections,
+    options.length
+  )
+  if (!limits.ok) {
+    return { success: false as const, error: limits.error }
+  }
   if (
     votingStartsAt &&
     votingEndsAt &&
@@ -210,6 +233,8 @@ export async function saveEventVote(input: SaveEventVoteInput) {
         description: input.description?.trim() || null,
         isEnabled: input.isEnabled,
         allowChangeVote: input.allowChangeVote,
+        minSelections: limits.minSelections,
+        maxSelections: limits.maxSelections,
         votingStartsAt,
         votingEndsAt,
         options: {
@@ -234,6 +259,8 @@ export async function saveEventVote(input: SaveEventVoteInput) {
             description: input.description?.trim() || null,
             isEnabled: input.isEnabled,
             allowChangeVote: input.allowChangeVote,
+            minSelections: limits.minSelections,
+            maxSelections: limits.maxSelections,
             votingStartsAt,
             votingEndsAt,
           },
@@ -286,7 +313,7 @@ export async function saveEventVote(input: SaveEventVoteInput) {
 
 export type CastVoteInput = {
   eventId: string
-  optionId: string
+  optionIds: string[]
   /** Guest nickname when not logged in */
   nickname?: string
 }
@@ -312,10 +339,16 @@ export async function castEventVote(input: CastVoteInput) {
     }
   }
 
-  const option = vote.options.find((o) => o.id === input.optionId)
-  if (!option) {
-    return { success: false as const, error: 'Invalid option' }
+  const selection = validateCastSelection(
+    input.optionIds,
+    vote.options.map((option) => option.id),
+    vote.minSelections,
+    vote.maxSelections
+  )
+  if (!selection.ok) {
+    return { success: false as const, error: selection.error }
   }
+  const optionIds = selection.optionIds
 
   const session = await auth()
   const userId = session?.user?.id ?? null
@@ -333,51 +366,67 @@ export async function castEventVote(input: CastVoteInput) {
   }
 
   const { token: deviceToken } = await getOrCreateVoterDeviceToken()
-  const existing = await findExistingBallot(vote.id, userId, deviceToken)
+  const existing = await findVoterBallots(vote.id, userId, deviceToken)
 
-  if (existing) {
-    if (!vote.allowChangeVote) {
-      return {
-        success: false as const,
-        error: 'You already voted and changing votes is disabled',
-      }
+  if (existing.length > 0 && !vote.allowChangeVote) {
+    return {
+      success: false as const,
+      error: 'You already voted and changing votes is disabled',
     }
+  }
 
+  const wanted = new Set(optionIds)
+  const byOption = new Map<string, typeof existing>()
+  for (const ballot of existing) {
+    const rows = byOption.get(ballot.optionId) ?? []
+    rows.push(ballot)
+    byOption.set(ballot.optionId, rows)
+  }
+
+  const toDelete: string[] = []
+  const toKeep: typeof existing = []
+  for (const ballot of existing) {
+    if (!wanted.has(ballot.optionId)) toDelete.push(ballot.id)
+  }
+  for (const optionId of optionIds) {
+    const rows = byOption.get(optionId) ?? []
+    if (rows.length === 0) continue
+    toKeep.push(rows[0]!)
+    for (const extra of rows.slice(1)) toDelete.push(extra.id)
+  }
+  const keptOptionIds = new Set(toKeep.map((ballot) => ballot.optionId))
+
+  try {
     await prisma.$transaction(async (tx) => {
-      // Free the device token if another ballot holds it
-      if (existing.deviceToken !== deviceToken) {
+      if (toDelete.length > 0) {
         await tx.eventVoteBallot.deleteMany({
-          where: {
-            voteId: vote.id,
+          where: { id: { in: toDelete } },
+        })
+      }
+      for (const ballot of toKeep) {
+        await tx.eventVoteBallot.update({
+          where: { id: ballot.id },
+          data: {
+            nickname: userId ? null : nickname,
+            voterEmail: userId ? voterEmail : null,
+            userId,
             deviceToken,
-            id: { not: existing.id },
           },
         })
       }
-      await tx.eventVoteBallot.update({
-        where: { id: existing.id },
-        data: {
-          optionId: option.id,
-          nickname: userId ? null : nickname,
-          voterEmail: userId ? voterEmail : null,
-          userId: userId,
-          deviceToken,
-        },
-      })
-    })
-    return { success: true as const, changed: true }
-  }
-
-  try {
-    await prisma.eventVoteBallot.create({
-      data: {
-        voteId: vote.id,
-        optionId: option.id,
-        deviceToken,
-        userId,
-        voterEmail: userId ? voterEmail : null,
-        nickname: userId ? null : nickname,
-      },
+      const toCreate = optionIds.filter((id) => !keptOptionIds.has(id))
+      if (toCreate.length > 0) {
+        await tx.eventVoteBallot.createMany({
+          data: toCreate.map((optionId) => ({
+            voteId: vote.id,
+            optionId,
+            deviceToken,
+            userId,
+            voterEmail: userId ? voterEmail : null,
+            nickname: userId ? null : nickname,
+          })),
+        })
+      }
     })
   } catch {
     return {
@@ -386,7 +435,7 @@ export async function castEventVote(input: CastVoteInput) {
     }
   }
 
-  return { success: true as const, changed: false }
+  return { success: true as const, changed: existing.length > 0 }
 }
 
 export async function deleteEventVote(eventId: string) {

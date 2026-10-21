@@ -222,6 +222,10 @@ model EventVote {
   isEnabled       Boolean  @default(false)
   /// When true, a voter may change their previous choice
   allowChangeVote Boolean  @default(true)
+  /// How many options a voter must select (1 = single choice)
+  minSelections   Int      @default(1)
+  /// How many options a voter may select
+  maxSelections   Int      @default(1)
   /// Voting window (results remain public/realtime even outside this window)
   votingStartsAt  DateTime?
   votingEndsAt    DateTime?
@@ -266,7 +270,7 @@ model EventVoteBallot {
   option      EventVoteOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
   user        User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  @@unique([voteId, deviceToken])
+  @@unique([voteId, deviceToken, optionId])
   @@index([voteId])
   @@index([optionId])
   @@index([userId])

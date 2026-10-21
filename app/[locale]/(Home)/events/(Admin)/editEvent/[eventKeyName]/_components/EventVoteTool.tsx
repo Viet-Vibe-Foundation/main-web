@@ -33,6 +33,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
   const [description, setDescription] = useState('')
   const [isEnabled, setIsEnabled] = useState(false)
   const [allowChangeVote, setAllowChangeVote] = useState(true)
+  const [minSelections, setMinSelections] = useState(1)
+  const [maxSelections, setMaxSelections] = useState(1)
   const [votingStartsAt, setVotingStartsAt] = useState('')
   const [votingEndsAt, setVotingEndsAt] = useState('')
   const [options, setOptions] = useState<OptionDraft[]>([
@@ -53,6 +55,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
           setDescription(vote.description || '')
           setIsEnabled(vote.isEnabled)
           setAllowChangeVote(vote.allowChangeVote)
+          setMinSelections(vote.minSelections)
+          setMaxSelections(vote.maxSelections)
           setVotingStartsAt(toDatetimeLocalValue(vote.votingStartsAt))
           setVotingEndsAt(toDatetimeLocalValue(vote.votingEndsAt))
           setOptions(
@@ -81,6 +85,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
         description,
         isEnabled,
         allowChangeVote,
+        minSelections,
+        maxSelections,
         votingStartsAt: parseDatetimeLocal(votingStartsAt),
         votingEndsAt: parseDatetimeLocal(votingEndsAt),
         options,
@@ -129,6 +135,8 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
       setDescription('')
       setIsEnabled(false)
       setAllowChangeVote(true)
+      setMinSelections(1)
+      setMaxSelections(1)
       setVotingStartsAt('')
       setVotingEndsAt('')
       setOptions([{ label: '' }, { label: '' }])
@@ -152,8 +160,9 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
       <p className="text-sm text-muted-foreground">
         Let visitors vote for options you define. Results stay public and update
         in real time. Casting votes is only allowed inside the voting window you
-        set below. Each device and account can vote once. Nicknames show in full;
-        logged-in emails are partially masked.
+        set below. Set how many options each voter must pick. Each device and
+        account can vote once. Nicknames show in full; logged-in emails are
+        partially masked.
       </p>
 
       <div className="flex flex-wrap items-center gap-6">
@@ -197,6 +206,40 @@ export default function EventVoteTool({ event }: EventVoteToolProps) {
         <p className="text-xs text-muted-foreground sm:col-span-2">
           Leave blank for always-open casting while the tool is enabled. Results
           are always visible when the tool is shown.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="vote-min">Minimum selections</Label>
+          <Input
+            id="vote-min"
+            type="number"
+            min={1}
+            value={minSelections}
+            onChange={(e) => {
+              const next = Number.parseInt(e.target.value, 10)
+              if (Number.isInteger(next)) setMinSelections(next)
+            }}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="vote-max">Maximum selections</Label>
+          <Input
+            id="vote-max"
+            type="number"
+            min={1}
+            value={maxSelections}
+            onChange={(e) => {
+              const next = Number.parseInt(e.target.value, 10)
+              if (Number.isInteger(next)) setMaxSelections(next)
+            }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          Voters must select at least the minimum and at most the maximum. Set
+          both to 1 for a single choice. The maximum cannot exceed the number
+          of options.
         </p>
       </div>
 
