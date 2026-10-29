@@ -55,7 +55,7 @@ interface EventDiscount {
   maxDiscountPercent?: number
   minTotal?: number // Only for Minimum Total Discount
   code?: string // Only for Code Discount
-  maxUses?: number // Only for Code Discount. Omit for unlimited uses.
+  maxUses?: number // Only for Code Discount. Maximum tickets this code can discount. Omit for unlimited.
   cannotBeStacked?: boolean // If true, this discount cannot be combined with other discounts
 }
 
@@ -95,8 +95,8 @@ const eventDiscountSchema = z
         z.null(),
         z.coerce
           .number()
-          .int('Maximum uses must be a whole number')
-          .min(1, 'Maximum uses must be at least 1'),
+          .int('Maximum tickets must be a whole number')
+          .min(1, 'Maximum tickets must be at least 1'),
       ])
       .optional(),
     cannotBeStacked: z.boolean().default(false),
@@ -552,7 +552,7 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
                         <span className="text-sm font-normal text-muted-foreground">
                           {' '}
                           {discount.maxUses != null
-                            ? `(Code: ${discount.code}, max ${discount.maxUses} use${discount.maxUses === 1 ? '' : 's'})`
+                            ? `(Code: ${discount.code}, max ${discount.maxUses} ticket${discount.maxUses === 1 ? '' : 's'})`
                             : `(Code: ${discount.code})`}
                         </span>
                       )}
@@ -881,14 +881,14 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
                       />
                     )}
 
-                    {/* Max uses - Only shown for Code Discount. Empty means unlimited. */}
+                    {/* Max tickets - Only shown for Code Discount. Empty means unlimited. */}
                     {discountType === 'Code Discount' && (
                       <FormField
                         control={discountForm.control}
                         name="maxUses"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Maximum Uses</FormLabel>
+                            <FormLabel>Maximum Tickets</FormLabel>
                             <FormControl>
                               <Input
                                 type="number"
@@ -904,7 +904,7 @@ const EventDiscounts = ({ event }: EventDiscountsProps) => {
                               />
                             </FormControl>
                             <FormDescription>
-                              Leave empty for unlimited uses. Each completed order counts as one use.
+                              Leave empty for unlimited tickets. Each discounted ticket counts toward this limit. Extra tickets in the same order pay the regular price.
                             </FormDescription>
                             <FormMessage />
                           </FormItem>

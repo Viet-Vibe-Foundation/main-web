@@ -30,6 +30,8 @@ export type CheckoutAppliedDiscountRecord = {
   configuredValue?: number
   /** Tickets of this type used to choose a quantity-range percent. */
   quantity?: number
+  /** Tickets in this checkout that received the discount code. */
+  ticketsCovered?: number
   cannotBeStacked?: boolean
   /**
    * List unit price in dollars before membership/student % off
@@ -63,6 +65,7 @@ export function buildAppliedDiscountsMulti(params: {
     discountAmount: number
     discountUnit: 'percentage' | 'amount'
     cannotBeStacked: boolean
+    ticketsCovered?: number
   } | null
   codeDiscountApplied: boolean
 }): CheckoutAppliedDiscountRecord[] {
@@ -154,6 +157,10 @@ export function buildAppliedDiscountsMulti(params: {
       discountUnit: verifiedCodeDiscount.discountUnit,
       configuredValue: verifiedCodeDiscount.discountAmount,
       cannotBeStacked: verifiedCodeDiscount.cannotBeStacked,
+      ...(verifiedCodeDiscount.ticketsCovered != null &&
+      verifiedCodeDiscount.ticketsCovered > 0
+        ? { ticketsCovered: verifiedCodeDiscount.ticketsCovered }
+        : {}),
     })
   }
 
