@@ -8,6 +8,11 @@ import { axiosInstance } from '@/lib/axios'
 import { isAxiosError } from 'axios'
 import { checkSubscription } from '@/lib/actions/payment/checkSubscription'
 import { verifyEventDiscountCode } from '@/lib/actions/event/verifyEventDiscountCode'
+import {
+  cartTotalWithCodeTicketLimit,
+  describeCodeApplication,
+  ticketsCoveredByCode,
+} from '@/lib/actions/event/discountCodeTickets'
 import { getEventForm, EventFormData } from '@/lib/actions/event/getEventForm'
 import Loader from '@/components/loader/Loader'
 import { Button } from '@/components/ui/button'
@@ -84,6 +89,8 @@ type AppliedCodeDiscount = {
   discountAmount: number
   discountUnit: 'percentage' | 'amount'
   cannotBeStacked: boolean
+  /** Null when this code does not cap the number of tickets it discounts. */
+  ticketsRemaining: number | null
 }
 
 export default function EventCartCheckout({
@@ -158,16 +165,21 @@ export default function EventCartCheckout({
 
         if (result.valid) {
           setAppliedCodeDiscount({
-            code: result.code!,
-            discountAmount: result.discountAmount!,
-            discountUnit: result.discountUnit!,
+            code: result.code,
+            discountAmount: result.discountAmount,
+            discountUnit: result.discountUnit,
             cannotBeStacked: Boolean(result.cannotBeStacked),
+            ticketsRemaining: result.ticketsRemaining,
           })
+          const capNote =
+            result.ticketsRemaining != null
+              ? ` ${t('checkout-code-ticket-cap', { count: result.ticketsRemaining })}`
+              : ''
           toast.success('Discount code applied', {
             description:
-              result.discountUnit === 'amount'
+              (result.discountUnit === 'amount'
                 ? `Applied $${result.discountAmount.toFixed(2)} off`
-                : `Applied ${result.discountAmount}% off`,
+                : `Applied ${result.discountAmount}% off`) + capNote,
             style: { color: '#22c55e' },
           })
         } else {
@@ -175,7 +187,7 @@ export default function EventCartCheckout({
           const limitReached = result.reason === 'Code usage limit reached'
           toast.error(limitReached ? 'Discount code limit reached' : 'Invalid discount code', {
             description: limitReached
-              ? 'This code has already been used the maximum number of times.'
+              ? 'This code has already discounted the maximum number of tickets.'
               : result.reason || 'The discount code is not valid. Please try again.',
             style: { color: '#ef4444' },
           })
@@ -194,7 +206,7 @@ export default function EventCartCheckout({
         setCooldownEndTime(Date.now() + 30000)
       }
     },
-    [eventId]
+    [eventId, t]
   )
 
   const handleRemoveCodeDiscount = useCallback(() => {
@@ -649,6 +661,10 @@ export default function EventCartCheckout({
         }
       }
 
+      // Snapshot the non-code discount so a ticket cap can leave extra tickets on it.
+      const percentBeforeCode = effectivePercent
+      const amountBeforeCode = effectiveAmount
+
       // Now incorporate the (possibly verified) Code Discount:
       // - Percentage code: behaves like existing logic (stackable/non‑stackable).
       // - Amount code: adds to or competes with amount-based discounts.
@@ -852,6 +868,55 @@ export default function EventCartCheckout({
       totalAfterBulk = totalAfterAllEventDiscounts
       bulkDiscountAmount = totalAfterRange - totalAfterBulk
 
+      const orderedUnitPrices: number[] = []
+      seatsByTicketType.forEach((seats) => {
+        seats.forEach((item) => {
+          orderedUnitPrices.push(seatUnitAfterRange(item).unitPrice)
+        })
+      })
+      selectedTickets.forEach((item) => {
+        const unitPrice = ticketUnitAfterRange(item).unitPrice
+        for (let i = 0; i < Math.max(0, item.quantity); i++) {
+          orderedUnitPrices.push(unitPrice)
+        }
+      })
+
+      let codeTicketsCovered: number | null = null
+      if (isCodeDiscountApplied && appliedCodeDiscount) {
+        const covered = ticketsCoveredByCode(
+          orderedUnitPrices.length,
+          appliedCodeDiscount.ticketsRemaining
+        )
+        if (covered < orderedUnitPrices.length) {
+          const limitedTotal = cartTotalWithCodeTicketLimit({
+            unitPrices: orderedUnitPrices,
+            nonCodePercent: percentBeforeCode,
+            nonCodeAmount: amountBeforeCode,
+            application:
+              covered <= 0
+                ? { kind: 'none' }
+                : describeCodeApplication({
+                    codeApplied: true,
+                    codeUnit: appliedCodeDiscount.discountUnit,
+                    codeValue: appliedCodeDiscount.discountAmount,
+                    percentBefore: percentBeforeCode,
+                    amountBefore: amountBeforeCode,
+                    percentAfter: effectivePercent,
+                    amountAfter: effectiveAmount,
+                  }),
+            ticketsCovered: covered,
+          })
+          const limitedDiscount = roundMoney(totalAfterRange - limitedTotal)
+          totalAfterBulk = totalAfterRange - limitedDiscount
+          bulkDiscountAmount = limitedDiscount
+          if (covered <= 0) {
+            isCodeDiscountApplied = false
+          } else {
+            codeTicketsCovered = covered
+          }
+        }
+      }
+
       return {
         baseTotal,
         totalAfterMembership,
@@ -864,6 +929,8 @@ export default function EventCartCheckout({
         finalTotal: totalAfterBulk,
         effectivePercent,
         effectiveAmount,
+        codeTicketsCovered,
+        cartTickets: orderedUnitPrices.length,
         isCodeDiscountApplied,
         isCodeDiscountWinning, // Track if code discount is winning (non-stackable)
         winningNonStackableDiscount, // Track which discount is actually winning
@@ -885,6 +952,8 @@ export default function EventCartCheckout({
       finalTotal: totalAfterBulk,
       effectivePercent,
       effectiveAmount: 0,
+      codeTicketsCovered: null,
+      cartTickets: 0,
       isCodeDiscountApplied: false,
       isCodeDiscountWinning: false,
       winningNonStackableDiscount: null,
@@ -901,6 +970,7 @@ export default function EventCartCheckout({
     type,
     discounts,
     appliedCodeDiscount,
+    seatsByTicketType,
   ])
 
   // Master checkout handler for multiple ticket types
@@ -1743,7 +1813,15 @@ export default function EventCartCheckout({
               {priceBreakdown.bulkDiscountAmount > 0 && (
                 <div className="flex items-center justify-between text-green-600">
                   <span className="max-w-[150px] md:max-w-[250px]">
-                    {priceBreakdown.effectivePercent > 0 &&
+                    {priceBreakdown.codeTicketsCovered != null &&
+                    priceBreakdown.codeTicketsCovered < priceBreakdown.cartTickets ? (
+                      <>
+                        {t('checkout-code-covers-tickets', {
+                          covered: priceBreakdown.codeTicketsCovered,
+                          total: priceBreakdown.cartTickets,
+                        })}
+                      </>
+                    ) : priceBreakdown.effectivePercent > 0 &&
                       priceBreakdown.effectiveAmount > 0 ? (
                       <>
                         {t('checkout-event-discounts-with-percent', {
@@ -1771,6 +1849,16 @@ export default function EventCartCheckout({
                         selectedSeatsWithTickets[0]?.ticket.currency ||
                         selectedTickets[0]?.ticket.currency ||
                         'CAD'
+                      if (
+                        priceBreakdown.codeTicketsCovered != null &&
+                        priceBreakdown.codeTicketsCovered < priceBreakdown.cartTickets
+                      ) {
+                        return (
+                          <span className="whitespace-nowrap">
+                            -{currency} ${priceBreakdown.bulkDiscountAmount.toFixed(2)}
+                          </span>
+                        )
+                      }
                       const flatAmount = priceBreakdown.effectiveAmount > 0
                         ? priceBreakdown.effectiveAmount
                         : 0

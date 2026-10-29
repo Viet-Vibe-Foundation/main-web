@@ -10,7 +10,7 @@ type EventCodeDiscount = {
   discountUnit?: 'percentage' | 'amount' | null
   // Legacy field for backward compatibility
   percentage?: number | null
-  /** Maximum completed orders that may redeem this code. Omit or null for unlimited. */
+  /** Maximum tickets this code can discount. Omit or null for unlimited. */
   maxUses?: number | null
   cannotBeStacked?: boolean | null
   type?: string
@@ -23,6 +23,8 @@ export type VerifiedEventCodeDiscount =
       discountAmount: number
       discountUnit: 'percentage' | 'amount'
       cannotBeStacked: boolean
+      /** Null when the code does not cap how many tickets it can discount. */
+      ticketsRemaining: number | null
     }
   | {
       valid: false
@@ -33,25 +35,43 @@ export type VerifiedEventCodeDiscount =
         | 'Code usage limit reached'
     }
 
-/** One completed checkout counts as one use, even when it creates several payment rows. */
-async function countEventCodeDiscountUses(
+/**
+ * Tickets already discounted by this code.
+ * A checkout stores `ticketsCovered` once on every payment row, so that value
+ * is taken once per checkout. Older rows have no cap and discounted the whole order.
+ */
+async function countEventCodeDiscountTickets(
   eventId: string,
   code: string
 ): Promise<number> {
   const normalized = code.trim().toLowerCase()
   const rows = await prisma.$queryRaw<Array<{ count: number }>>(
     Prisma.sql`
-      SELECT COUNT(DISTINCT COALESCE("stripePaymentId", "id"))::int AS count
-      FROM "Payment"
-      WHERE "eventId" = ${eventId}
-        AND "refunded" = false
-        AND jsonb_typeof("discountApplied"::jsonb) = 'array'
-        AND EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements("discountApplied"::jsonb) AS elem
-          WHERE elem->>'kind' = 'discount_code'
-            AND lower(trim(elem->>'code')) = ${normalized}
-        )
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN covered_explicit IS NOT NULL THEN covered_explicit
+          ELSE qty
+        END
+      ), 0)::int AS count
+      FROM (
+        SELECT
+          SUM(GREATEST(COALESCE(p."quantity", 1), 0))::int AS qty,
+          MAX(
+            CASE
+              WHEN elem->>'ticketsCovered' ~ '^[0-9]+$'
+              THEN (elem->>'ticketsCovered')::int
+              ELSE NULL
+            END
+          ) AS covered_explicit
+        FROM "Payment" p
+        CROSS JOIN LATERAL jsonb_array_elements(p."discountApplied"::jsonb) AS elem
+        WHERE p."eventId" = ${eventId}
+          AND p."refunded" = false
+          AND jsonb_typeof(p."discountApplied"::jsonb) = 'array'
+          AND elem->>'kind' = 'discount_code'
+          AND lower(trim(elem->>'code')) = ${normalized}
+        GROUP BY COALESCE(p."stripePaymentId", p."id")
+      ) AS checkouts
     `
   )
   return Number(rows[0]?.count ?? 0)
@@ -107,9 +127,11 @@ export async function verifyEventDiscountCode(params: {
     match.maxUses !== undefined && match.maxUses !== null
       ? Number(match.maxUses)
       : null
+  let ticketsRemaining: number | null = null
   if (maxUses !== null && Number.isFinite(maxUses) && maxUses > 0) {
-    const used = await countEventCodeDiscountUses(params.eventId, code)
-    if (used >= maxUses) {
+    const used = await countEventCodeDiscountTickets(params.eventId, code)
+    ticketsRemaining = Math.max(0, Math.floor(maxUses) - used)
+    if (ticketsRemaining <= 0) {
       return { valid: false, reason: 'Code usage limit reached' }
     }
   }
@@ -120,6 +142,7 @@ export async function verifyEventDiscountCode(params: {
     discountAmount,
     discountUnit: unit,
     cannotBeStacked: Boolean(match.cannotBeStacked),
+    ticketsRemaining,
   }
 }
 
