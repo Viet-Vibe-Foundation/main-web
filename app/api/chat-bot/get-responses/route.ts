@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 const OPENCLAW_INVOKE_URL = 'https://openclaw.k-aithelittlelion.com/tools/invoke'
-const AGENT_ID = 'vvf-penguin-helper'
+const AGENT_ID = 'webhook-responder'
 
 const parseJsonSafely = (raw: string) => {
   try {
