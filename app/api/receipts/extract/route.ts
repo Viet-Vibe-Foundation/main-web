@@ -49,6 +49,7 @@ async function call9Router({
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Accept: 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
@@ -68,6 +69,7 @@ async function call9Router({
         },
       ],
       temperature: 0,
+      stream: false,
     }),
   })
 }

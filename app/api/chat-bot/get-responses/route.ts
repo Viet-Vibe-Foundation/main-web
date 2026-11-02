@@ -76,11 +76,10 @@ export const POST = async (request: Request) => {
 
     const bodySet = {
       tool: 'sessions_history',
-      action: 'json',
-      sessionKey: agentSessionKey,
+      agentId: 'main',
       args: {
         sessionKey: agentSessionKey,
-        includeTools: true,
+        includeTools: false,
         limit: 20,
       },
     }
