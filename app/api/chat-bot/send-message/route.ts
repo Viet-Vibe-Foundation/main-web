@@ -46,7 +46,7 @@ export const POST = async (request: Request) => {
 
     const bodySet = clearConversation
       ? {
-          agentId: 'vvf-penguin-helper',
+          agentId: 'webhook-responder',
           sessionKey,
           sessionMode: 'isolated',
           message: 'This message is just to start the session. Do not say or return any response',
@@ -54,7 +54,7 @@ export const POST = async (request: Request) => {
           deliver: false,
         }
       : {
-          agentId: 'vvf-penguin-helper',
+          agentId: 'webhook-responder',
           sessionKey,
           sessionMode: 'persistent',
           message: message.trim(),
