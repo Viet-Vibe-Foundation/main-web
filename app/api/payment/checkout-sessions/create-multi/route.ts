@@ -1,6 +1,11 @@
 import Stripe from 'stripe'
 import { NextResponse } from 'next/server'
 import { verifyEventDiscountCode } from '@/lib/actions/event/verifyEventDiscountCode'
+import {
+  cartTotalWithCodeTicketLimit,
+  describeCodeApplication,
+  ticketsCoveredByCode,
+} from '@/lib/actions/event/discountCodeTickets'
 import { getEventDiscountsAndTickets } from '@/lib/actions/event/getEventDiscountsAndTickets'
 import { prisma } from '@/lib/db'
 import { CheckoutItems } from '@/lib/types/payment'
@@ -372,7 +377,14 @@ export async function POST(req: Request) {
       : totalAfterMembership
 
     // Re-verify discount code server-side to prevent tampering
-    let verifiedCodeDiscount: { code: string; discountAmount: number; discountUnit: 'percentage' | 'amount'; cannotBeStacked: boolean } | null = null
+    let verifiedCodeDiscount: {
+      code: string
+      discountAmount: number
+      discountUnit: 'percentage' | 'amount'
+      cannotBeStacked: boolean
+      ticketsRemaining: number | null
+      ticketsCovered?: number
+    } | null = null
     if (discountCode && typeof discountCode === 'string' && discountCode.trim()) {
       try {
         const verificationResult = await verifyEventDiscountCode({
@@ -381,14 +393,15 @@ export async function POST(req: Request) {
         })
         if (verificationResult.valid) {
           verifiedCodeDiscount = {
-            code: verificationResult.code!,
-            discountAmount: verificationResult.discountAmount!,
-            discountUnit: verificationResult.discountUnit!,
+            code: verificationResult.code,
+            discountAmount: verificationResult.discountAmount,
+            discountUnit: verificationResult.discountUnit,
             cannotBeStacked: verificationResult.cannotBeStacked,
+            ticketsRemaining: verificationResult.ticketsRemaining,
           }
         } else if (verificationResult.reason === 'Code usage limit reached') {
           return NextResponse.json(
-            { message: 'This discount code has reached its usage limit.' },
+            { message: 'This discount code has already been used on the maximum number of tickets.' },
             { status: 400 }
           )
         }
@@ -403,6 +416,9 @@ export async function POST(req: Request) {
     let effectivePercent = 0
     let effectiveAmount = 0
     let codeDiscountApplied = false
+    let percentBeforeCode = 0
+    let amountBeforeCode = 0
+    let codeCoversPartOfCart = false
 
     if (discountList.length > 0 || verifiedCodeDiscount) {
       // First, for each non-code discount type, pick the single "best" qualifying discount
@@ -604,6 +620,10 @@ export async function POST(req: Request) {
         }
       }
 
+      // Snapshot the non-code discount so a ticket cap can leave extra tickets on it.
+      percentBeforeCode = effectivePercent
+      amountBeforeCode = effectiveAmount
+
       // Now incorporate the (possibly verified) Code Discount
       if (verifiedCodeDiscount && verifiedCodeDiscount.discountAmount > 0) {
         if (verifiedCodeDiscount.discountUnit === 'percentage') {
@@ -671,6 +691,21 @@ export async function POST(req: Request) {
           }
         }
       }
+
+      if (codeDiscountApplied && verifiedCodeDiscount) {
+        const covered = ticketsCoveredByCode(
+          totalItemCount,
+          verifiedCodeDiscount.ticketsRemaining
+        )
+        verifiedCodeDiscount = { ...verifiedCodeDiscount, ticketsCovered: covered }
+        if (covered <= 0) {
+          codeDiscountApplied = false
+          effectivePercent = percentBeforeCode
+          effectiveAmount = amountBeforeCode
+        } else if (covered < totalItemCount) {
+          codeCoversPartOfCart = true
+        }
+      }
     }
 
     // Apply discount at price level if effective discount > 0
@@ -688,50 +723,88 @@ export async function POST(req: Request) {
     let totalDiscountAmount = 0
 
     if (shouldApplyDiscount) {
-      // First apply percentage-based discounts (if any) on the quantity-range price
-      if (effectivePercent > 0) {
-        // Apply percentage discount per unit and round (matching frontend)
-        let sumOfRoundedPrices = 0
-
+      if (codeCoversPartOfCart && verifiedCodeDiscount) {
+        const orderedUnitPrices: number[] = []
         for (const item of checkoutItems) {
           const priceId = resolveStripePriceId(item)
-          if (!stripePriceCache.has(priceId)) {
-            try {
-              const stripePrice = await stripe.prices.retrieve(priceId)
-              stripePriceCache.set(priceId, stripePrice)
-            } catch (error) {
-              console.error('Failed to retrieve Stripe price:', error)
-              continue
-            }
-          }
-
-          const stripePrice = stripePriceCache.get(priceId)!
+          const stripePrice = stripePriceCache.get(priceId)
+          if (!stripePrice) continue
           const unitPrice = rangedUnitPrice(
             item.ticketId,
             (stripePrice.unit_amount || 0) / 100
           ).unitPrice
+          const unitCount = lineQuantity(item)
+          for (let i = 0; i < unitCount; i++) orderedUnitPrices.push(unitPrice)
+        }
+        if (orderedUnitPrices.length > 0) {
+          const covered = ticketsCoveredByCode(
+            orderedUnitPrices.length,
+            verifiedCodeDiscount.ticketsRemaining
+          )
+          verifiedCodeDiscount = { ...verifiedCodeDiscount, ticketsCovered: covered }
+          const limitedTotal = cartTotalWithCodeTicketLimit({
+            unitPrices: orderedUnitPrices,
+            nonCodePercent: percentBeforeCode,
+            nonCodeAmount: amountBeforeCode,
+            application: describeCodeApplication({
+              codeApplied: true,
+              codeUnit: verifiedCodeDiscount.discountUnit,
+              codeValue: verifiedCodeDiscount.discountAmount,
+              percentBefore: percentBeforeCode,
+              amountBefore: amountBeforeCode,
+              percentAfter: effectivePercent,
+              amountAfter: effectiveAmount,
+            }),
+            ticketsCovered: covered,
+          })
+          totalDiscountAmount = Math.round((totalAfterQuantityRange - limitedTotal) * 100) / 100
+        }
+      } else {
+        // First apply percentage-based discounts (if any) on the quantity-range price
+        if (effectivePercent > 0) {
+          // Apply percentage discount per unit and round (matching frontend)
+          let sumOfRoundedPrices = 0
 
-          const unitCount = item.seatNumbers.length > 0
-            ? item.seatNumbers.length
-            : ((item as any).quantity || 1)
+          for (const item of checkoutItems) {
+            const priceId = resolveStripePriceId(item)
+            if (!stripePriceCache.has(priceId)) {
+              try {
+                const stripePrice = await stripe.prices.retrieve(priceId)
+                stripePriceCache.set(priceId, stripePrice)
+              } catch (error) {
+                console.error('Failed to retrieve Stripe price:', error)
+                continue
+              }
+            }
 
-          // Apply discount to each unit individually and round
-          for (let i = 0; i < unitCount; i++) {
-            const discountedPrice = unitPrice * (1 - effectivePercent / 100)
-            const roundedPrice = Math.round(discountedPrice * 100) / 100
-            sumOfRoundedPrices += roundedPrice
+            const stripePrice = stripePriceCache.get(priceId)!
+            const unitPrice = rangedUnitPrice(
+              item.ticketId,
+              (stripePrice.unit_amount || 0) / 100
+            ).unitPrice
+
+            const unitCount = item.seatNumbers.length > 0
+              ? item.seatNumbers.length
+              : ((item as any).quantity || 1)
+
+            // Apply discount to each unit individually and round
+            for (let i = 0; i < unitCount; i++) {
+              const discountedPrice = unitPrice * (1 - effectivePercent / 100)
+              const roundedPrice = Math.round(discountedPrice * 100) / 100
+              sumOfRoundedPrices += roundedPrice
+            }
           }
+
+          totalAfterPercentDiscounts = sumOfRoundedPrices
         }
 
-        totalAfterPercentDiscounts = sumOfRoundedPrices
+        // Then apply amount-based discounts on top of percentage discounts
+        const totalAfterAllEventDiscounts = Math.max(0, totalAfterPercentDiscounts - effectiveAmount)
+
+        totalDiscountAmount = totalAfterQuantityRange - totalAfterAllEventDiscounts
+        // Round to 2 decimal places (matching frontend)
+        totalDiscountAmount = Math.round(totalDiscountAmount * 100) / 100
       }
-
-      // Then apply amount-based discounts on top of percentage discounts
-      const totalAfterAllEventDiscounts = Math.max(0, totalAfterPercentDiscounts - effectiveAmount)
-
-      totalDiscountAmount = totalAfterQuantityRange - totalAfterAllEventDiscounts
-      // Round to 2 decimal places (matching frontend)
-      totalDiscountAmount = Math.round(totalDiscountAmount * 100) / 100
     }
 
     // Group items by price to calculate proportional discount distribution
